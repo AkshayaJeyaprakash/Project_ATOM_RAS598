@@ -1,0 +1,15 @@
+services:
+  site:
+    image: jekyll/jekyll:latest
+    volumes:
+      - .:/srv/jekyll
+    ports:
+      - "4000:4000"
+      - "35729:35729"
+    environment:
+      # This forces ruby to ignore the incompatible binary compiler
+      - BUNDLE_FORCE_RUBY_PLATFORM=1
+    command: >
+      bash -c "rm -rf .jekyll-cache _site &&
+      bundle install && 
+      bundle exec jekyll serve --host 0.0.0.0 --livereload --force_polling"
