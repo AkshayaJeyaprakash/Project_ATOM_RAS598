@@ -59,9 +59,7 @@ Primary problem
 
 ```mermaid
 graph TD;
-    User: "Find all red objects"-->VLN Model: "I should check near desks and shelves";
-    VLN Model: "I should check near desks and shelves"-->Robot navigates to those areas;
-    Robot navigates to those areas-->Camera detects red objects;
+    User Input-->VLN Model;
 ```
 
 User: "Find all red objects"
