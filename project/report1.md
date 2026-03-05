@@ -72,7 +72,7 @@ flowchart TD;
     I --> K(["Object Detection"]);
     J --> M(["Location"]);
     K --> I(["Location of Object"]);
-    I --> N{["Finished Mapping Room"]};
+    I --> N{"Finished Mapping Room"};
     N -->|Yes| O["Display Map With Object Locations"]
     N -->|No| P["Continue Search"]
 ```
