@@ -58,8 +58,10 @@ Primary problem
   - Mermaid Diagram: Provide a visual flow following the Perception, Estimation, Planning and Actuation convention. This diagram must illustrate how data moves through various modules in the system.
 
 ```mermaid
-graph TD;
-    User Input-->VLN Model;
+flowchart TD;
+    A --> B;
+    B --> C;
+    B --> D;
 ```
 
 User: "Find all red objects"
