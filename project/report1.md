@@ -57,7 +57,14 @@ Primary problem
 
   - Mermaid Diagram: Provide a visual flow following the Perception, Estimation, Planning and Actuation convention. This diagram must illustrate how data moves through various modules in the system.
 
-<div style="text-align: center;">
+```mermaid
+graph TD;
+    A-->B;
+    A-->C;
+    B-->D;
+    C-->D;
+```
+
 User: "Find all red objects"
     ↓
 VLN Model: "I should check near desks and shelves"
@@ -73,7 +80,6 @@ Our code combines: "Red cup found at position X, Y"
 Repeat until whole room explored
     ↓
 Show final map with all red objects marked
-</div>
 
   - Module Declaration Table: A table listing every module in your diagram, explicitly labeled as either Library (existing ROS 2 packages) or Custom (code you will write).
 
