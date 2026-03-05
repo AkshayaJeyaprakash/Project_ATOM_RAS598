@@ -5,11 +5,11 @@ parent: Project
 nav_order: 1
 ---
 
-# Report 1: XX
+# Report 1: Proposal & Architecture
 
 {: .no_toc }
 
-This page demonstrates the core capabilities of the Just the Docs theme, including navigation, mathematical typesetting, and technical diagrams.
+This page breaks down our proposed project into the mission and scope of the project, the specifications of the robot used, architecture, protocol, and git infestructure.
 
 ---
 
@@ -24,15 +24,29 @@ This page demonstrates the core capabilities of the Just the Docs theme, includi
 
 ## 1. Missions Statement & Scope
 
+Define the mission statement, scope, and the "success state" of your project. Identify the specific environment (e.g., cluttered warehouse, narrow hallway) and the primary problem your robot is designed to solve.
+
 ---
 
 ## 2. Technical Specifications
 
-### Robot Platform
+    - Robot Platform
+    - Kinematic Model
+    - Preception Stack
 
 --- 
 
-## 3. High Level SYstem Architecture
+## 3. High Level System Architecture
+
+### Mermaid Diagram
+
+### Module Declaration Table
+
+### Module Intent
+
+#### Libraries
+
+#### Custom Libraries
 
 ---
 
@@ -44,6 +58,6 @@ This page demonstrates the core capabilities of the Just the Docs theme, includi
 
 ---
 
-- [] Akshaya
-- [] Moss
-- [] Nivas
+- [ ] Akshaya
+- [ ] Moss
+- [ ] Nivas
