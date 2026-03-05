@@ -59,17 +59,22 @@ Primary problem
 
 ```mermaid
 flowchart TD;
-    A["User Input"];
-    A --> B["VLN Model Interpretation"];
-    B --> C["VLN Desicion"];
-    C --> D["Robot"];
-    D --> J["Navigation"];
-    D --> E["Camera"];
-    D --> F["SLAM"];
-    E --> G["Object Detection"];
-    F --> H["Location Tracking"];
-    G --> I["Records Location of Object"];
-    H --> I;
+    A["User"];
+    A --> B(["User Input"]);
+    B --> C["VLN Model"]
+    C --> D(["VLN Model Interpretation"]);
+    D --> E(["VLN Desicion"]);
+    E --> F["Robot"];
+    F --> G["Motors"];
+    G --> H(["Navigation"]);
+    E --> I["Camera"];
+    E --> J["SLAM"];
+    I --> K(["Object Detection"]);
+    J --> M(["Location"]);
+    K --> I(["Location of Object"]);
+    I --> N{["Finished Mapping Room"]};
+    N -->|Yes| O["Display Map With Object Locations"]
+    N -->|No| P["Continue Search"]
 ```
 
 User: "Find all red objects"
