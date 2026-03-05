@@ -30,9 +30,9 @@ Define the mission statement, scope, and the "success state" of your project. Id
 
 ## 2. Technical Specifications
 
-    - Robot Platform
-    - Kinematic Model
-    - Preception Stack
+    - Robot Platform: 
+    - Kinematic Model: 
+    - Preception Stack: 
 
 --- 
 
