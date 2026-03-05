@@ -319,6 +319,15 @@ flowchart TD;
     B --> D["Option B"];
 ```
 
+```mermaid
+flowchart TD;
+    A --> B;
+    B --> C;
+    B --> D;
+    C --> E;
+    D --> E;
+```
+
 #### Graph Left --> Right (graph LR;)
 ```mermaid
 graph LR;
