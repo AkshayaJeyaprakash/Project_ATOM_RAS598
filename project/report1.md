@@ -99,7 +99,7 @@ flowchart TD;
 
 ### 3.3 Module Intent
 
-#### Libraries: 
+  #### Libraries: 
     Provide a 50-150 word writeup describing the intent behind choosing a specific package for module and the configuration you intend to tune (e.g. max velocity of the differential drive controller).
     
 VLN Model
@@ -111,7 +111,7 @@ Nav2
 YOLO
         
 
-#### Custom Libraries: 
+  #### Custom Libraries: 
     Provide a 100-200 word writeup describing the specific algorithm you intend to implement from scratch (e.g., "Implementing a custom RRT* to navigate narrow passages"). Note: This abstract forms the "contract" for your Algorithmic Factor grade.
     
 VLN Integration
