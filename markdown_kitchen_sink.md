@@ -309,21 +309,23 @@ Long, single-line code blocks should not wrap. They should horizontally scroll i
 
 ### Mermaid Diagram
 
-#### Flowchart Top --> Down (flowchart TD)
+#### Flowchart Top --> Down (flowchart TD;)
 
 ```mermaid
 flowchart TD;
-    A --> B;
-    B --> C;
-    B --> D;
+    A(["Start"])
+    A --> B{"Decision"};
+    B --> C["Option A"];
+    B --> D["Option B"];
 ```
 
-#### Graph Left --> Right
+#### Graph Left --> Right (graph LR;)
 ```mermaid
 graph LR;
-    A --> B;
-    B --> C;
-    B --> D;
+    A(["Start"])
+    A --> B{"Decision"};
+    B --> C["Option A"];
+    B --> D["Option B"];
 ```
 
 ### Collapsed Section
