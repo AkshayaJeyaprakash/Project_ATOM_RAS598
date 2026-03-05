@@ -47,8 +47,8 @@ Primary problem
 
 ## 2. Technical Specifications
 
-  - Robot Platform: Hardware (TurtleBot 4, etc.) or specific simulation environment.
-  - Kinematic Model: Declare the model (Differential Drive, Ackermann, or Holonomic).
+  - Robot Platform: TurtleBot 4
+  - Kinematic Model: <span style="color: #FF0000;">Declare the model (Differential Drive, Ackermann, or Holonomic).</span>
   - Preception Stack: List all sensors used (LiDAR, RGB-D, IMU).
 
 --- 
