@@ -309,7 +309,9 @@ Long, single-line code blocks should not wrap. They should horizontally scroll i
 
 ### Mermaid Diagram
 
-#### Flowchart Top --> Down (flowchart TD;)
+The mermaid diagram can be created using either flowchart or graph. Only flowchart was used here for consistency.
+
+#### Diagram Top --> Down
 
 ```mermaid
 flowchart TD;
@@ -326,11 +328,12 @@ flowchart TD;
     B --> D;
     C --> E;
     D --> E;
+    E --> B;
 ```
 
-#### Graph Left --> Right (graph LR;)
+#### Diagram Left --> Right
 ```mermaid
-graph LR;
+flowchart LR;
     A(["Start"])
     A --> B{"Decision"};
     B --> C["Option A"];
