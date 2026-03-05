@@ -69,10 +69,11 @@ flowchart TD;
     G --> H(["Navigation"]);
     E --> I["Camera"];
     E --> J["SLAM"];
+    J --> M(["Robot Location"]);
     I --> K(["Object Detection"]);
-    J --> M(["Location"]);
-    K --> I(["Location of Object"]);
-    I --> N{"Finished Mapping Room"};
+    K --> Q(["Location of Object"]);
+    M --> Q;
+    Q --> N{"Finished Mapping Room"};
     N -->|Yes| O["Display Map With Object Locations"]
     N -->|No| P["Continue Search"]
 ```
