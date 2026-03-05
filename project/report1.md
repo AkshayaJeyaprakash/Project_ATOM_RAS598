@@ -77,22 +77,6 @@ flowchart TD;
     N -->|No| P["Continue Search"]
 ```
 
-User: "Find all red objects"
-    ↓
-VLN Model: "I should check near desks and shelves"
-    ↓
-Robot navigates to those areas
-    ↓
-Camera detects red objects
-    ↓
-SLAM tracks where the robot is
-    ↓
-Our code combines: "Red cup found at position X, Y"
-    ↓
-Repeat until whole room explored
-    ↓
-Show final map with all red objects marked
-
   - Module Declaration Table: A table listing every module in your diagram, explicitly labeled as either Library (existing ROS 2 packages) or Custom (code you will write).
 
   - Module Intent
