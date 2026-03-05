@@ -11,6 +11,10 @@ nav_order: 1
 
 This page breaks down our proposed project into the mission and scope of the project, the specifications of the robot used, architecture, protocol, and git infestructure.
 
+- [ ] Akshaya
+- [ ] Moss
+- [ ] Nivas
+
 ---
 
 ## Table of Contents
@@ -24,32 +28,34 @@ This page breaks down our proposed project into the mission and scope of the pro
 
 ## 1. Missions Statement & Scope
 
-Mission statement
-- To create a robot that can be given simple spoken instructions that it then uses to determin the best corse of action and successfully completes the instructions
+### 1.1 Mission statement
+To create a robot that can be given simple spoken instructions that it then uses to determin the best corse of action and successfully completes the instructions
 
-Scope 
+### 1.2 Scope 
 - understanding spoken instructions
 - autonomously exploring a room
 - detecting and cataloging verbally specified objects
 - creating a map of all the cataloged objects
 - presenting the map to the user
 
-Success state 
-- The robot can successfully be verbally instructed what objects to find then navigate the room with no additional user input while detecting and mapping the location of all specified objects
+### 1.3 Success state 
+The robot can successfully be verbally instructed what objects to find then navigate the room with no additional user input while detecting and mapping the location of all specified objects
 
-Enviornment
-- Where will the robot be used?
+### 1.4 Enviornment
+Where will the robot be used?
 
-Primary problem
-- What is the project solving?
+### 1.5 Primary problem
+What is the project solving?
 
 ---
 
 ## 2. Technical Specifications
 
-  - Robot Platform: TurtleBot 4
-  - Kinematic Model: Declare the model (Differential Drive, Ackermann, or Holonomic).
-  - Preception Stack: RPLIDAR A1M8, OAK-D-LITE, IMU, wheel encoder, IR obsticle sensor, IR cliff sensor
+Robot Platform: TurtleBot 4
+
+Kinematic Model: Declare the model (Differential Drive, Ackermann, or Holonomic)
+
+Preception Stack: RPLIDAR A1M8, OAK-D-LITE, IMU
 
 --- 
 
@@ -93,26 +99,28 @@ flowchart TD;
 
 ### 3.3 Module Intent
 
-    Libraries: Provide a 50-150 word writeup describing the intent behind choosing a specific package for module and the configuration you intend to tune (e.g. max velocity of the differential drive controller).
+#### Libraries: 
+    Provide a 50-150 word writeup describing the intent behind choosing a specific package for module and the configuration you intend to tune (e.g. max velocity of the differential drive controller).
     
-    VLN Model
+VLN Model
         
-    SLAM
+SLAM
         
-    Nav2
+Nav2
         
-    YOLO
+YOLO
         
 
-    Custom Libraries: Provide a 100-200 word writeup describing the specific algorithm you intend to implement from scratch (e.g., "Implementing a custom RRT* to navigate narrow passages"). Note: This abstract forms the "contract" for your Algorithmic Factor grade.
+#### Custom Libraries: 
+    Provide a 100-200 word writeup describing the specific algorithm you intend to implement from scratch (e.g., "Implementing a custom RRT* to navigate narrow passages"). Note: This abstract forms the "contract" for your Algorithmic Factor grade.
     
-    VLN Integration
+VLN Integration
         
-    Map Builder
+Map Builder
         
-    Exploration Manager
+Exploration Manager
         
-    Action Translator
+Action Translator
         
 
 ---
@@ -124,15 +132,7 @@ Speed limit
 
 Stop and back up if robot runs into object
 
-
-
 ---
 
 ## 5. Git Infrastructure
 Link to your shared team repository and confirm the Git Submodule setup is active on your individual site.
-
----
-
-- [ ] Akshaya
-- [ ] Moss
-- [ ] Nivas
