@@ -309,6 +309,24 @@ class conditions(object):
 Long, single-line code blocks should not wrap. They should horizontally scroll if they are too long. This line should be long enough to demonstrate this.
 ```
 
+### Mermaid Diagram
+
+#### Flowchart Top --> Down (flowchart TD)
+
+```mermaid
+flowchart TD;
+    A --> B;
+    B --> C;
+    B --> D;
+```
+
+#### Graph Left --> Right
+```mermaid
+graph LR;
+    A --> B;
+    B --> C;
+    B --> D;
+```
 
 ### Collapsed Section
 
