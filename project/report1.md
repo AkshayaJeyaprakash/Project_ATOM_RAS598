@@ -48,8 +48,8 @@ Primary problem
 ## 2. Technical Specifications
 
   - Robot Platform: TurtleBot 4
-  - Kinematic Model: <span style="color: #FF0000;">Declare the model (Differential Drive, Ackermann, or Holonomic).</span>
-  - Preception Stack: List all sensors used (LiDAR, RGB-D, IMU).
+  - Kinematic Model: Declare the model (Differential Drive, Ackermann, or Holonomic).
+  - Preception Stack: RPLIDAR A1M8, OAK-D-LITE, IMU, wheel encoder, IR obsticle sensor, IR cliff sensor
 
 --- 
 
