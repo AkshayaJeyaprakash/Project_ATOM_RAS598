@@ -340,6 +340,16 @@ flowchart LR;
     B --> D["Option B"];
 ```
 
+```mermaid
+flowchart LR;
+    A --> B;
+    B --> C;
+    B --> D;
+    C --> E;
+    D --> E;
+    E --> B;
+```
+
 ### Collapsed Section
 
 The following uses the [`<details>`](https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/organizing-information-with-collapsed-sections) tag to create a collapsed section.

@@ -63,11 +63,13 @@ flowchart TD;
     A --> B["VLN Model Interpretation"];
     B --> C["VLN Desicion"];
     C --> D["Robot"];
+    D --> J["Navigation"];
     D --> E["Camera"];
     D --> F["SLAM"];
     E --> G["Object Detection"];
     F --> H["Location Tracking"];
     G --> I["Records Location of Object"];
+    H --> I;
 ```
 
 User: "Find all red objects"
