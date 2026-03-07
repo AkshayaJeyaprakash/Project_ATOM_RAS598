@@ -9,7 +9,7 @@ nav_order: 1
 
 {: .no_toc }
 
-This page breaks down our proposed project into the mission and scope of the project, the specifications of the robot used, architecture, protocol, and git infrastructure.
+This page breaks down our proposed project into the mission and scope of the project, the specifications of the robot used, the architecture, the protocol, and the git infrastructure.
 
 ---
 
@@ -25,7 +25,7 @@ This page breaks down our proposed project into the mission and scope of the pro
 ### 1. Mission Statement & Scope
 
 ### 1.1 Mission Statement
-Our goal is to develop an autonomous mobile robot (Turtle bot 4) capable of understanding natural language commands and use them to explore in the given environment performing semantic exploration tasks. The robot insted of relying on fixed commands, the robot will interpret everyday intructions such as "Find all red objects in the room," using VLN techniques the robot autonomously explore the environment, detect specified objects using computer vision and to match with the given description, and generate an annotated map showing the locations of all discovered items in the given environment.
+Our goal is to develop an autonomous mobile robot (Turtlebot 4) capable of understanding natural language commands and using them to explore the given environment, performing semantic exploration tasks. The robot insted of relying on fixed commands, will interpret everyday instructions such as "Find all red objects in the room," using VLN techniques. The robot autonomously explores the environment, detects specified objects using computer vision, matches with the given description, and generates an annotated map showing the locations of all discovered items in the given environment.
 
 ### 1.2 Scope
 The project encompasses the following capabilities:
@@ -33,7 +33,7 @@ The project encompasses the following capabilities:
 - **Autonomous Exploration**: Navigating through the mapped environments using VLN-guided decision making based on the given instructions
 - **Object Detection & Classification**: Identifying and cataloging verbally specified objects in real-time using computer vision
 - **Semantic Mapping**: Creating spatial maps annotated with object locations and attributes as the robot explores
-- **Result Presentation**: The system will present the results by disaplying an annotate map that shows where the relevent objexts were found
+- **Result Presentation**: The system will present the results by displaying an annotated map that shows where the relevant objects were found
 
 ### 1.3 Success State
 The system successfully accomplishes the following:
@@ -44,13 +44,14 @@ The system successfully accomplishes the following:
 
 ### 1.4 Environment
 The robot will operate in **Lab 225**, a semi-structured indoor environment characterized by:
-- The room contains fixed objects, static furniture (desks, chairs, tabels)
-- People may move through the environment during operation, introducing temporary obstacles the robot must avoid.
+- The room contains fixed objects, static furniture (desks, chairs, tables)
+- People may move through the environment during operation, introducing temporary obstacles that the robot must avoid.
 - Lighting conditions may be uneven, noisy due to shadows, reflections, or different light sources, which can affect visual perception
-- Textured surfaces for SLAM feature extraction like Walls, floors, and surrounding objects provide enough visual features for SLAM-based localization and mapping.
+- Textured surfaces for SLAM feature extraction, like Walls, floors, and surrounding objects, provide enough visual features for SLAM-based localization and mapping.
 
 ### 1.5 Primary Problem
-Although VLN's has shown promising results has shown promising results in simulated environments, implementing these techniques on real mobile robots presents several practical challenges. This project addresses the challenge of integrating VLN methods into a physical mobile robot system capable of understanding natural language instructions and executing them in a real indoor environment. The goal is to bridge the gap between high-level language-based navigation models and the constraints of real-world robotic operation, enabling the robot to understand instructions, explore its surroundings, detect relevant objects, and map their locations autonomously.
+Although VLN's have shown promising results in simulated environments, implementing these techniques on real mobile robots presents several practical challenges. This project addresses the challenge of integrating VLN methods into a physical mobile robot system capable of understanding natural-language instructions and executing them in real indoor environments. The goal is to bridge the gap between high-level language-based navigation models and the constraints of real-world robotic operation, enabling the robot to understand instructions, explore its surroundings, detect relevant objects, and autonomously map their locations.
+
 ---
 
 ## 2. Technical Specifications
@@ -70,7 +71,7 @@ Although VLN's has shown promising results has shown promising results in simula
 
 --- 
 
-## 3. High Level System Architecture
+## 3. High-Level System Architecture
 
 ### 3.1 Mermaid Diagram
 ```mermaid
@@ -125,7 +126,7 @@ graph TB
 | Module / Node | Functional Domain | Software Type | Description |
 |---------------|-------------------|---------------|-------------|
 | RPLIDAR Driver | Perception | Library | Acquires 360° laser scan data for obstacle detection and SLAM |
-| OAK-D Camera Driver | Perception | Library | Provides RGB images and depth maps from spatial AI camera |
+| OAK-D Camera Driver | Perception | Library | Provides RGB images and depth maps from a spatial AI camera |
 | IMU Driver | Perception | Library | Supplies orientation and acceleration data |
 | YOLO Object Detector | Perception | Library | Pre-trained neural network for real-time object detection |
 | SLAM Toolbox | Estimation | Library | Performs simultaneous localization and mapping using laser scans |
@@ -142,7 +143,7 @@ graph TB
 
 **VLN Model (Library – Vision-Language Navigation)**
 
-We will use a pre-trained vision-language model (likely CLIP or a similar embodied AI model) to guide the robot’s exploration in an intelligent way. The VLN model takes three main inputs: the current camera image, the task description (for example, “find red objects”), and the current SLAM map. Using these inputs, it predicts exploration waypoints that are likely to be useful.
+We will use a pre-trained vision-language model (likely CLIP or a similar embodied AI model) to guide the robot’s exploration intelligently. The VLN model takes three main inputs: the current camera image, the task description (for example, “find red objects”), and the current SLAM map. Using these inputs, it predicts exploration waypoints that are likely to be useful.
 
 This allows the robot to explore in a context-aware manner. Instead of wandering randomly, it can prioritize areas where the target objects are more likely to appear (for instance, looking near desks when searching for office supplies). We are currently evaluating several VLN architectures and will choose the one that best meets our needs in terms of inference latency (target <500 ms per decision) and strong zero-shot performance in our environment.
 
@@ -150,9 +151,9 @@ This allows the robot to explore in a context-aware manner. Instead of wandering
 
 **SLAM Toolbox (Library – Mapping & Localization)**
 
-SLAM Toolbox provides graph-based SLAM with loop-closure detection, which helps maintain an accurate map while the robot explores. We chose this package over alternatives such as Cartographer because it performs well in indoor environments with cluttered furniture, requires less computation (important for a Raspberry Pi 4), and handles dynamic obstacles reliably.
+SLAM Toolbox provides graph-based SLAM with loop-closure detection, helping maintain an accurate map as the robot explores. We chose this package over alternatives such as Cartographer because it performs well in indoor environments with cluttered furniture, requires less computation (important for a Raspberry Pi 4), and reliably handles dynamic obstacles.
 
-Our configuration will focus on tuning parameters such as scan matcher settings (correlation search space and resolution) and loop-closure thresholds so that we can balance mapping accuracy with real-time performance. The system will operate with 2D pose estimation (x, y, θ) and update at approximately 10 Hz.
+Our configuration will focus on tuning parameters such as scan-matcher settings (correlation search space and resolution) and loop-closure thresholds to balance mapping accuracy with real-time performance. The system will operate with 2D pose estimation (x, y, θ) and update at approximately 10 Hz.
 
 ---
 
@@ -188,7 +189,7 @@ Key components of the implementation include:
 4. **Confidence Gating** – Only executing suggestions whose confidence exceeds a defined threshold (>0.6).  
 5. **Fallback Logic** – Switching to frontier-based exploration if the VLN model is unavailable.
 
-This module is essential because it connects the learning-based reasoning of the VLN model with the classical navigation system.
+This module is essential because it connects the VLN model's learning-based reasoning to the classical navigation system.
 
 ---
 
@@ -210,7 +211,7 @@ The result is a structured semantic map that supports intelligent task completio
 
 **Exploration Coordinator (Custom – Planning Domain)**
 
-The Exploration Coordinator manages the overall exploration process. It integrates guidance from the VLN model, monitors map coverage, and determines when the task has been completed. Although frontier-based exploration packages exist, our custom version allows us to combine frontier exploration with VLN guidance and semantic awareness.
+The Exploration Coordinator manages the overall exploration process. It integrates guidance from the VLN model, monitors map coverage, and determines when the task is complete. Although frontier-based exploration packages exist, our custom version allows us to combine frontier exploration with VLN guidance and semantic awareness.
 
 Its main responsibilities include:
 
@@ -227,16 +228,15 @@ QUERY_VLN → NAVIGATE → DETECT_AND_MAP → ASSESS_COVERAGE → [loop or COMPL
 ```
 
 This module ties together all other components and ultimately provides the high-level intelligence that enables autonomous exploration.
-```
 
 ---
 
 ## 4. Safety & Operational Protocol
 
 ### 4.1 Hardware Safety Mechanisms
-- **Emergency Stop Button**: A emergency stop button on the software base allows the robot to immediately cut power to the motors if a dangerous situation occurs.
+- **Emergency Stop Button**: An emergency stop button on the software base allows the robot to immediately cut power to the motors if a dangerous situation occurs.
 - **Bump Sensors**: Contact sensors detect collisions with obstacles and trigger an immediate stop or slight reversal to avoid damage.
-- **Battery Monitoring**: The system continuously monitors battery levels, issuing a low-battery warning at 30% and initiating an automatic return-to-dock procedure when the charge drops to 20%. Also kill switch dsiabled during charging altering the user it's in charging mode.
+- **Battery Monitoring**: The system continuously monitors battery levels, issuing a low-battery warning at 30% and initiating an automatic return-to-dock procedure when the charge drops to 20%. Also, the kill switch is disabled during charging, altering the user's charging mode.
 
 ### 4.2 Software Safety Systems
 
@@ -248,29 +248,29 @@ This module ties together all other components and ultimately provides the high-
 Note: These values are approximate initial limits. The final velocity and acceleration parameters may be adjusted during testing and experimentation to achieve a balance between safety, stability, and navigation performance.
 
 **Deadman Switch Logic:**
-- If no SLAM pose update received for few seconds  → STOP (localization failure)
+- If no SLAM pose update received for a few seconds  → STOP (localization failure)
 - If Nav2 reports path planning failure 3 consecutive attempts → STOP and alert the user
-- If stuck (id the robot velocity <0.01 m/s for 10 seconds while command is active) → Execute recovery/ return to docking
+- If stuck (if the robot velocity <0.01 m/s for 10 seconds while the command is active) → Execute recovery/ return to docking
 
-Note: These thresholds are approximate and may be adjusted based on system performance, computational load, and communication latency during testing to ensure reliable safety behavior in real-world operation.
+Note: These thresholds are approximate and may be adjusted during testing based on system performance, computational load, and communication latency to ensure reliable safety behavior in real-world operation.
 
 **Timeout Protocols:**
-- VLN model query timeout: 60 seconds (robot will diplay the error message fo the model timeout)
-- Navigation timeout: 120 seconds per decision making (then replan or select new goal)
+- VLN model query timeout: 60 seconds (robot will display the error message for the model timeout)
+- Navigation timeout: 120 seconds per decision making (then replan or select a new goal)
 - Total exploration timeout: 25 minutes maximum (prevent battery depletion)
 
-Note: These numbers are approximate and may be adjusted based on system performance, computational load during testing to ensure reliable safety behavior in real-world operation.
+Note: These numbers are approximate and may be adjusted based on system performance and computational load during testing to ensure reliable safety behavior in real-world operation.
 
 **Recovery Behaviors (Graduated):**
 1. **Level 1 - Stuck Detection**: If the robot is detected as stuck, it will rotate 180°, back up 0.5m, replan path
-2. **Level 2 - Navigation Failure**: Upon navigation failure, the robot will clear its costmap, slightly increase obstacle inflation, and attempt to replan the path if only instructions given by the user
+2. **Level 2 - Navigation Failure**: Upon navigation failure, the robot will clear its costmap, slightly increase obstacle inflation, and attempt to replan the path if only instructions are given by the user
 3. **Level 3 - Repeated Failures**: After multiple consecutive failures, the robot will return to its last known good pose(Docking center) and request a new VLN waypoint to continue exploration safely.
 
 Note: The activation of each recovery level may vary depending on environmental conditions, sensor noise, and communication or computation latency during real-world testing.
 
 **E-Stop Trigger Conditions:**
-- Emergency button press an immediate stop when the E-Stop button on the softwares ide is pressed.
-- Unrecoverable localization failure (no SLAM pose for few seconds, indicating loss of localization)
+- Emergency button: Pressing the E-Stop button on the software's IDE immediately stops the machine.
+- Unrecoverable localization failure (no SLAM pose for a few seconds, indicating loss of localization)
 - Critical sensor failure (If key sensors, such as the LIDAR, stop providing valid data for more than 10 seconds.)
 - Navigation system crash detected (Detection of a failure or crash/overload in the navigation stack)
 
@@ -295,5 +295,5 @@ Note: These safeguards are designed to be adaptable. Their parameters may be adj
 **Git Workflow:** 
 - Main branch protected, requires pull request reviews
 - Feature branches will be created for each milestone or atomic sub-tasks within a Milestone. These branches are not merged into the main branch until all team members have approved the changes (**Milestone 1 is an exception**, it will not be merged until the project proposal has been discussed and approved by the professor).
-- Commit message will contain a detailed description of the changes made
-- Each team member commits from individual GitHub account
+- The commit message will contain a detailed description of the changes made
+- Each team member commits from their individual GitHub account
