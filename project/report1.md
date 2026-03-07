@@ -1,6 +1,6 @@
 ---
 layout: default
-title: "Report 1"
+title: "Milestone 1"
 parent: Project
 nav_order: 1
 ---
