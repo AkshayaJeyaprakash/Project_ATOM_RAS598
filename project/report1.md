@@ -9,11 +9,7 @@ nav_order: 1
 
 {: .no_toc }
 
-This page breaks down our proposed project into the mission and scope of the project, the specifications of the robot used, architecture, protocol, and git infestructure.
-
-- [ ] Akshaya
-- [ ] Moss
-- [ ] Nivas
+This page breaks down our proposed project into the mission and scope of the project, the specifications of the robot used, architecture, protocol, and git infrastructure.
 
 ---
 
@@ -59,77 +55,179 @@ Although VLN's has shown promising results has shown promising results in simula
 
 ## 2. Technical Specifications
 
-Robot Platform: TurtleBot 4
+**Robot Platform:** TurtleBot 4 (Hardware)
 
-Kinematic Model: Declare the model (Differential Drive, Ackermann, or Holonomic)
+**Kinematic Model:** Differential Drive
+- Two independently driven wheels
+- Non-holonomic constraints
+- Forward velocity and angular velocity control
 
-Preception Stack: RPLIDAR A1M8, OAK-D-LITE, IMU
+**Perception Stack:**
+- **RPLIDAR A1M8**: 360° 2D laser scanner (12m range, 8000 samples/sec)
+- **OAK-D Lite**: Spatial AI camera providing RGB images and depth sensing
+- **IMU**: Inertial Measurement Unit for orientation and acceleration data
+- **Wheel Encoders**: Odometry from Create3 base
 
 --- 
 
 ## 3. High Level System Architecture
 
 ### 3.1 Mermaid Diagram
-
 ```mermaid
-flowchart TD;
-    A["User"];
-    A --> B(["User Input"]);
-    B --> C["VLN Model"]
-    C --> D(["VLN Model Interpretation"]);
-    D --> E(["VLN Desicion"]);
-    E --> F["Robot"];
-    F --> G["Motors"];
-    G --> H(["Navigation"]);
-    F --> I["Camera"];
-    F --> J["SLAM"];
-    J --> M(["Robot Location"]);
-    I --> K(["Object Detection"]);
-    K --> Q(["Location of Object"]);
-    M --> Q;
-    Q --> N{"Finished Mapping Room"};
-    N -->|Yes| O["Display Map With Object Locations"]
-    N -->|No| P["Continue Search"]
+graph TB
+    subgraph Perception
+        A[RPLIDAR A1M8]
+        B[OAK-D Camera]
+        C[IMU]
+    end
+    
+    subgraph Estimation
+        D[SLAM Toolbox]
+        E[Semantic Map Builder - CUSTOM]
+    end
+    
+    subgraph Planning
+        F[VLN Model]
+        G[VLN Integration - CUSTOM]
+        H[Exploration Coordinator - CUSTOM]
+        I[Nav2 Global Planner]
+    end
+    
+    subgraph Actuation
+        J[Diff-Drive Controller]
+        K[Motor Interface]
+    end
+    
+    A --> D
+    B --> L[YOLO Object Detector]
+    C --> D
+    
+    D --> E
+    L --> E
+    
+    E --> F
+    F --> G
+    G --> H
+    H --> I
+    
+    I --> J
+    J --> K
+    
+    E -.Feedback.-> H
+    
+    style E fill:#ffcccc
+    style G fill:#ffcccc
+    style H fill:#ffcccc
 ```
 
 ### 3.2 Module Declaration Table
 
-  | Module              | Library or Custom |
-  |:----------------    |:------------------|
-  | VLN Model           | Library           |
-  | SLAM                | Library           |
-  | Nav2                | Library           |
-  | YOLO                | Library           |
-  | VLN Integration     | Custom            |
-  | Map Builder         | Custom            |
-  | Exploration Manager | Custom            |
-  | Action Translator   | Custom            |
+| Module / Node | Functional Domain | Software Type | Description |
+|---------------|-------------------|---------------|-------------|
+| RPLIDAR Driver | Perception | Library | Acquires 360° laser scan data for obstacle detection and SLAM |
+| OAK-D Camera Driver | Perception | Library | Provides RGB images and depth maps from spatial AI camera |
+| IMU Driver | Perception | Library | Supplies orientation and acceleration data |
+| YOLO Object Detector | Perception | Library | Pre-trained neural network for real-time object detection |
+| SLAM Toolbox | Estimation | Library | Performs simultaneous localization and mapping using laser scans |
+| **Semantic Map Builder** | **Estimation** | **Custom** | **Fuses object detections with SLAM pose to create annotated map** |
+| VLN Model | Planning | Library | Pre-trained vision-language model for navigation decision-making |
+| **VLN Integration** | **Planning** | **Custom** | **Bridges VLN model outputs to ROS navigation stack** |
+| **Exploration Coordinator** | **Planning** | **Custom** | **Manages exploration loop and task completion criteria** |
+| Nav2 Global Planner | Planning | Library | Computes collision-free paths on occupancy grid |
+| Diff-Drive Controller | Actuation | Library | Translates velocity commands to wheel motor controls |
 
 ### 3.3 Module Intent
 
-  #### Libraries: 
-    Provide a 50-150 word writeup describing the intent behind choosing a specific package for module and the configuration you intend to tune (e.g. max velocity of the differential drive controller).
-    
-VLN Model
-        
-SLAM
-        
-Nav2
-        
-YOLO
-        
+#### Library Modules
 
-  #### Custom Libraries: 
-    Provide a 100-200 word writeup describing the specific algorithm you intend to implement from scratch (e.g., "Implementing a custom RRT* to navigate narrow passages"). Note: This abstract forms the "contract" for your Algorithmic Factor grade.
-    
-VLN Integration
-        
-Map Builder
-        
-Exploration Manager
-        
-Action Translator
-        
+**VLN Model (Library – Vision-Language Navigation)**
+
+We will use a pre-trained vision-language model (likely CLIP or a similar embodied AI model) to guide the robot’s exploration in an intelligent way. The VLN model takes three main inputs: the current camera image, the task description (for example, “find red objects”), and the current SLAM map. Using these inputs, it predicts exploration waypoints that are likely to be useful.
+
+This allows the robot to explore in a context-aware manner. Instead of wandering randomly, it can prioritize areas where the target objects are more likely to appear (for instance, looking near desks when searching for office supplies). We are currently evaluating several VLN architectures and will choose the one that best meets our needs in terms of inference latency (target <500 ms per decision) and strong zero-shot performance in our environment.
+
+---
+
+**SLAM Toolbox (Library – Mapping & Localization)**
+
+SLAM Toolbox provides graph-based SLAM with loop-closure detection, which helps maintain an accurate map while the robot explores. We chose this package over alternatives such as Cartographer because it performs well in indoor environments with cluttered furniture, requires less computation (important for a Raspberry Pi 4), and handles dynamic obstacles reliably.
+
+Our configuration will focus on tuning parameters such as scan matcher settings (correlation search space and resolution) and loop-closure thresholds so that we can balance mapping accuracy with real-time performance. The system will operate with 2D pose estimation (x, y, θ) and update at approximately 10 Hz.
+
+---
+
+**Nav2 Global Planner (Library – Path Planning)**
+
+Nav2’s global planner uses the A* algorithm to plan paths across the occupancy grid produced by the SLAM system. We selected Nav2 because it is mature, highly configurable, and integrates smoothly with the ROS 2 navigation stack.
+
+Important configuration parameters include the costmap inflation radius (set to the robot footprint plus a safety margin of 0.1 m), path resolution, and planner tolerance settings. The planner will receive navigation goals from our custom Exploration Coordinator and compute safe, collision-free paths. While the robot moves, the VLN Integration module will monitor progress and update goals if needed.
+
+---
+
+**YOLO Object Detector (Library – Visual Perception)**
+
+YOLO (You Only Look Once) will handle real-time object detection using images from the robot’s camera. We plan to start with a pre-trained YOLOv8 model, though we may switch to YOLOv5 if computational constraints require it.
+
+If the baseline model does not perform well enough in our environment, we may fine-tune it using a custom dataset of objects found in our lab. Key configuration steps include tuning the confidence threshold (targeting >0.7 for better precision), adjusting non-max suppression parameters, and selecting an input resolution that balances accuracy with inference speed. Our goal is to maintain detection performance above 10 FPS so that the robot can perceive objects continuously while exploring.
+
+---
+
+#### Custom Modules
+
+**VLN Integration (Custom – Planning Domain)**
+
+The VLN Integration module acts as the bridge between the pre-trained VLN model and the ROS 2 navigation system. Since no existing ROS package directly connects VLN outputs to the navigation stack, we will implement a custom asynchronous interface.
+
+This module collects the robot’s current state — including the camera image, task parameters, and a snapshot of the SLAM map — and sends it to the VLN model through an API call. The model then returns predicted waypoints, confidence scores, and suggested actions. The module converts these predictions into ROS `NavigateToPose` goals for Nav2.
+
+Key components of the implementation include:
+
+1. **State Synchronization** – Aligning SLAM pose, camera frames, and map data in time.  
+2. **API Management** – Handling inference latency by managing request queues.  
+3. **Output Translation** – Converting VLN waypoint predictions into navigation goals in the map coordinate frame.  
+4. **Confidence Gating** – Only executing suggestions whose confidence exceeds a defined threshold (>0.6).  
+5. **Fallback Logic** – Switching to frontier-based exploration if the VLN model is unavailable.
+
+This module is essential because it connects the learning-based reasoning of the VLN model with the classical navigation system.
+
+---
+
+**Semantic Map Builder (Custom – Estimation Domain)**
+
+The Semantic Map Builder combines object detections from YOLO with pose estimates from SLAM to build a persistent, globally referenced database of objects that the robot has observed. Traditional SLAM systems only create geometric maps (occupied vs. free space), so this module adds semantic understanding to the map.
+
+The algorithm works as follows:
+
+1. **Coordinate Transformation** – Convert detected object positions from the camera frame → robot base frame → global map frame using TF2 transforms and camera calibration data.  
+2. **Data Association** – Match new detections with existing map entries using spatial proximity (within a 0.2 m threshold) and feature similarity.  
+3. **Confidence Fusion** – Update object confidence using Bayesian inference, increasing confidence when objects are detected repeatedly.  
+4. **Deduplication** – Avoid duplicate map entries by clustering detections that originate from overlapping viewpoints.  
+5. **Persistence** – Maintain a database storing object ID, object type, global position (x, y, z), confidence score, and number of observations.
+
+The result is a structured semantic map that supports intelligent task completion and visualization of discovered objects. We plan to implement this module in Python using efficient spatial indexing (such as a KD-tree) to maintain real-time performance during exploration.
+
+---
+
+**Exploration Coordinator (Custom – Planning Domain)**
+
+The Exploration Coordinator manages the overall exploration process. It integrates guidance from the VLN model, monitors map coverage, and determines when the task has been completed. Although frontier-based exploration packages exist, our custom version allows us to combine frontier exploration with VLN guidance and semantic awareness.
+
+Its main responsibilities include:
+
+1. **VLN-Guided Frontier Selection** – Request exploration waypoints from the VLN Integration module, validate them against SLAM frontiers, and prioritize the most promising targets.  
+2. **Coverage Tracking** – Monitor the percentage of the environment explored and track how long it has been since a new target object was detected.  
+3. **Task Completion Logic** – Decide when exploration is finished based on criteria such as map coverage (>90%), detection saturation (no new objects found in the last two minutes), or reaching a time limit.  
+4. **Recovery Behaviors** – Handle issues like the robot getting stuck, navigation failures, or VLN timeouts by triggering fallback strategies.  
+5. **Loop Management** – Coordinate the timing between VLN queries, navigation execution, and semantic map updates.
+
+The coordinator runs as a state machine with the following states:
+
+```
+QUERY_VLN → NAVIGATE → DETECT_AND_MAP → ASSESS_COVERAGE → [loop or COMPLETE]
+```
+
+This module ties together all other components and ultimately provides the high-level intelligence that enables autonomous exploration.
+```
 
 ---
 
@@ -174,7 +272,7 @@ Note: The activation of each recovery level may vary depending on environmental 
 - Emergency button press an immediate stop when the E-Stop button on the softwares ide is pressed.
 - Unrecoverable localization failure (no SLAM pose for few seconds, indicating loss of localization)
 - Critical sensor failure (If key sensors, such as the LIDAR, stop providing valid data for more than 10 seconds.)
-- Navigation system crash detected (Detection of a failure or crash/overload in the navigation stack )
+- Navigation system crash detected (Detection of a failure or crash/overload in the navigation stack)
 
 Note: These thresholds are approximate and may be fine-tuned during testing based on real-world sensor behavior, latency, and robot dynamics.
 
@@ -189,4 +287,13 @@ Note: These safeguards are designed to be adaptable. Their parameters may be adj
 ---
 
 ## 5. Git Infrastructure
-Link to your shared team repository and confirm the Git Submodule setup is active on your individual site.
+
+**Shared Team Repository:** [https://github.com/AkshayaJeyaprakash/Project_ATOM_RAS598](https://github.com/AkshayaJeyaprakash/Project_ATOM_RAS598)
+
+**Link to current Milestone branch:** [https://github.com/AkshayaJeyaprakash/Project_ATOM_RAS598/tree/Milestone_1](https://github.com/AkshayaJeyaprakash/Project_ATOM_RAS598)
+
+**Git Workflow:** 
+- Main branch protected, requires pull request reviews
+- Feature branches will be created for each milestone or atomic sub-tasks within a Milestone. These branches are not merged into the main branch until all team members have approved the changes (**Milestone 1 is an exception**, it will not be merged until the project proposal has been discussed and approved by the professor).
+- Commit message will contain a detailed description of the changes made
+- Each team member commits from individual GitHub account
