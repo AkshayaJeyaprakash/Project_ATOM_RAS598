@@ -27,9 +27,9 @@ This page documents our transition from design to implementation, providing conc
 
 The robot's state in the world frame is:
 
-```math
+$$
 q = \begin{bmatrix} x \\\ y \\\ \theta \end{bmatrix}
-```
+$$
 
 &nbsp;
 
@@ -43,25 +43,25 @@ The control inputs are the angular velocities of the right and left wheels: $​
 
 First, wheel angular velocities map to linear wheel speeds:
 
-```math
+$$
 v_{right} = r\dot{\phi}_R \quad \quad v_{left} = r\dot{\phi}_L
-```
+$$
 
 &nbsp;
 
 These combine to give the robot's linear and angular velocity:
 
-```math
+$$
 ^xv = \frac{r}{2} (\dot{\phi}_R + \dot{\phi}_L) \quad \quad \omega = \dot{\theta} = \frac{r}{L} (\dot{\phi}_R - \dot{\phi}_L)
-```
+$$
 
 &nbsp;
 
 ### Full World-Frame State Update (the kinematic model)
 
-```math
+$$
 \dot{q} = v_{world} = \begin{bmatrix} ^xv cos(\theta) \\\ ^xvsin(\theta) \\\ \dot{\theta} \end{bmatrix} = \begin{bmatrix} \frac{r}{2} (\dot{\phi}_R + \dot{\phi}_L) cos(\theta) \\\ \frac{r}{2} (\dot{\phi}_R + \dot{\phi}_L) sin(\theta) \\\ \frac{r}{L} (\dot{\phi}_R - \dot{\phi}_L) \end{bmatrix}
-```
+$$
 
 &nbsp;
 
@@ -123,7 +123,7 @@ graph TB
 
 #### Module Declaration Table
 | Module / Node | Functional Domain | Software Type | Description |
-|---------------|-------------------|---------------|-------------|
+|---------------|------------------|--------------|-------------|
 | RPLIDAR Driver | Perception | Library | Acquires 360° laser scan data for obstacle detection and SLAM |
 | OAK-D Camera Driver | Perception | Library | Provides RGB images and depth maps from a spatial AI camera |
 | IMU Driver | Perception | Library | Supplies orientation and acceleration data |
