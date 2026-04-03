@@ -35,7 +35,7 @@ $$
 
 ### Control Inputs
 
-The control inputs are the angular velocities of the right and left wheels: $​\dot{\phi}_R$ and $\dot{\phi}_L$​, where wheel radius is $r$ and track width (wheelbase) is $L$.
+The control inputs are the angular velocities of the right and left wheels: $$​\dot{\phi}_R$$ and $$\dot{\phi}_L$$​, where wheel radius is $$r$$ and track width (wheelbase) is $$L$$.
 
 &nbsp;
 
@@ -123,7 +123,7 @@ graph TB
 
 #### Module Declaration Table
 | Module / Node | Functional Domain | Software Type | Description |
-|---------------|------------------|--------------|-------------|
+|---------------|-------------------|---------------|-------------|
 | RPLIDAR Driver | Perception | Library | Acquires 360° laser scan data for obstacle detection and SLAM |
 | OAK-D Camera Driver | Perception | Library | Provides RGB images and depth maps from a spatial AI camera |
 | IMU Driver | Perception | Library | Supplies orientation and acceleration data |
@@ -135,6 +135,7 @@ graph TB
 | **Exploration Coordinator** | **Planning** | **Custom** | **Manages exploration loop and task completion criteria** |
 | Nav2 Global Planner | Planning | Library | Computes collision-free paths on occupancy grid |
 | Diff-Drive Controller | Actuation | Library | Translates velocity commands to wheel motor controls |
+
 ---
 
 ## 3. Experimental Analysis & Validation
