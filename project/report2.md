@@ -4,11 +4,11 @@ title: "Report 2"
 parent: Project
 nav_order: 2
 ---
-# Report 2: YY
+# Report 2: Mid-Point Technical Proof
 
 {: .no_toc }
 
-This page demonstrates the core capabilities of the Just the Docs theme, including navigation, mathematical typesetting, and technical diagrams.
+This page documents our transition from design to implementation, providing concrete evidence of technical progress and system calibration.
 
 ---
 
@@ -21,84 +21,150 @@ This page demonstrates the core capabilities of the Just the Docs theme, includi
 
 ---
 
-## 1. Mathematical Formulas
-The probability density function of a Gaussian distribution is defined as:
+## 1. Differential Drive Kinematics Model
 
-$$p(x) = \frac{1}{\sigma\sqrt{2\pi}} e^{-\frac{1}{2}\left(\frac{x-\mu}{\sigma}\right)^2}$$
+### State Vector
 
-Where:
-- $$\mu$$ is the mean (peak location).
-- $$\sigma$$ is the standard deviation (width of the "bell").
+The robot's state in the world frame is:
 
----
-
-## 2. Code Implementation
-
-Below is a snippet of the Python code used to process the assignment data.
-
-```python
-import numpy as np
-
-def calculate_velocity(displacement, time):
-    """Calculates average velocity."""
-    return np.divide(displacement, time)
-
-print(f"Result: {calculate_velocity(100, 20)} m/s")
-
+```math
+q = \begin{bmatrix} x \\\ y \\\ \theta \end{bmatrix}
 ```
 
+&nbsp;
+
+### Control Inputs
+
+The control inputs are the angular velocities of the right and left wheels: $​\dot{\phi}_R$ and $\dot{\phi}_L$​, where wheel radius is $r$ and track width (wheelbase) is $L$.
+
+&nbsp;
+
+### Forward Kinematics — Mapping from Wheel Velocities to Body/World Velocity
+
+First, wheel angular velocities map to linear wheel speeds:
+
+```math
+v_{right} = r\dot{\phi}_R \quad \quad v_{left} = r\dot{\phi}_L
+```
+
+&nbsp;
+
+These combine to give the robot's linear and angular velocity:
+
+```math
+^xv = \frac{r}{2} (\dot{\phi}_R + \dot{\phi}_L) \quad \quad \omega = \dot{\theta} = \frac{r}{L} (\dot{\phi}_R - \dot{\phi}_L)
+```
+
+&nbsp;
+
+### Full World-Frame State Update (the kinematic model)
+
+```math
+\dot{q} = v_{world} = \begin{bmatrix} ^xv cos(\theta) \\\ ^xvsin(\theta) \\\ \dot{\theta} \end{bmatrix} = \begin{bmatrix} \frac{r}{2} (\dot{\phi}_R + \dot{\phi}_L) cos(\theta) \\\ \frac{r}{2} (\dot{\phi}_R + \dot{\phi}_L) sin(\theta) \\\ \frac{r}{L} (\dot{\phi}_R - \dot{\phi}_L) \end{bmatrix}
+```
+
+&nbsp;
+
 ---
 
-## 3. Section & Sub-sections
+## 2. System Architecture
 
-The sidebar will automatically highlight the section you are currently viewing.
+### 2.1 Detailed Computational Map
 
-### 3.1 Observations
+#### Mermaid Diagram
+```mermaid
+graph TB
+    subgraph Perception
+        A[RPLIDAR A1M8]
+        B[OAK-D Camera]
+        C[IMU]
+    end
+    
+    subgraph Estimation
+        D[SLAM Toolbox]
+        E[Semantic Map Builder - CUSTOM]
+    end
+    
+    subgraph Planning
+        F[VLN Model]
+        G[VLN Integration - CUSTOM]
+        H[Exploration Coordinator - CUSTOM]
+        I[Nav2 Global Planner]
+    end
+    
+    subgraph Actuation
+        J[Diff-Drive Controller]
+        K[Motor Interface]
+    end
+    
+    A --> D
+    B --> L[YOLO Object Detector]
+    C --> D
+    
+    D --> E
+    L --> E
+    
+    E --> F
+    F --> G
+    G --> H
+    H --> I
+    
+    I --> J
+    J --> K
+    
+    E -.Feedback.-> H
+    
+    style E fill:#ffcccc
+    style G fill:#ffcccc
+    style H fill:#ffcccc
+```
 
-* Observation A: The system remained stable under load.
-* Observation B: Latency increased during the second trial.
+### 2.2 Module Descriptions
 
-### 3.2 Conclusion
+#### Module Declaration Table
+| Module / Node | Functional Domain | Software Type | Description |
+|---------------|-------------------|---------------|-------------|
+| RPLIDAR Driver | Perception | Library | Acquires 360° laser scan data for obstacle detection and SLAM |
+| OAK-D Camera Driver | Perception | Library | Provides RGB images and depth maps from a spatial AI camera |
+| IMU Driver | Perception | Library | Supplies orientation and acceleration data |
+| YOLO Object Detector | Perception | Library | Pre-trained neural network for real-time object detection |
+| SLAM Toolbox | Estimation | Library | Performs simultaneous localization and mapping using laser scans |
+| **Semantic Map Builder** | **Estimation** | **Custom** | **Fuses object detections with SLAM pose to create annotated map** |
+| VLN Model | Planning | Library | Pre-trained vision-language model for navigation decision-making |
+| **VLN Integration** | **Planning** | **Custom** | **Bridges VLN model outputs to ROS navigation stack** |
+| **Exploration Coordinator** | **Planning** | **Custom** | **Manages exploration loop and task completion criteria** |
+| Nav2 Global Planner | Planning | Library | Computes collision-free paths on occupancy grid |
+| Diff-Drive Controller | Actuation | Library | Translates velocity commands to wheel motor controls |
+---
 
-The experiment met all primary objectives. Future work should focus on optimizing the data pipeline.
+## 3. Experimental Analysis & Validation
+
+### 3.1 Noise & Uncertainty Analysis
+
+### 3.2 Run-Time Issues
+
+### 3.3 Milestone Video
 
 ---
 
-## 4. Media
+## 4. Project Management
 
-You can include images by placing them in the `assets/images/` folder.
+### 4.1 Instructor Feedback Integration
 
-![Alt text](../assets/images/logo.png){: width="500" }
+| Critiques/Questions | Specific Technical Actions Taken |
+|---------------------|----------------------------------|
+| 1. Do you plan to add more objects to the environment? How will you handle objects added or removed by other students in a common space during operation? |  |
+| 2. How exactly are you calculating positional error? |  |
+| 3. What specifically are "suggested actions" under the VLN integration? |  |
+| 4. I’m not quite understanding the need for the YOLO model if the VLN model already takes camera images and instructions as inputs. Could you clarify? |  |
+| 5. If the VLN outputs waypoints in the SLAM map, what custom work is required to convert that to a Nav2 goal? I see that as a very short task, is the bulk of the custom work in the semantic map builder? |  |
 
-*Figure 1: Class Logo*
+### 4.2 Individual Contribution
 
----
-
-## 5. Submission Checklist
-
-* [x] Complete Markdown documentation
-* [x] Verify LaTeX rendering
-* [x] Generate Mermaid flowchart
-* [ ] Peer review feedback
-
-# Markdown Features
-
-## Callouts
-> This is a note
-{: .note }
-
-> This is a warning
-{: .warning }
-
-## Buttons
-[Main Button](assignment1.html){: .btn .btn-primary }
-[Blue Button](assignment2.html){: .btn .btn-blue }
-[Blue Button](assignment3.html){: .btn .btn-red }
-
-## Tables
-
-| Header | Header |
-| :--- | :--- |
-| Cell | Cell |
+| Team Member | Primary Technical Role | Key Git Commits/PRs | Specific File(s) Authorship (Direct Links) |
+|-------------|------------------------|---------------------|--------------------------------------------|
+| Ackshaya J |  |  |  |
+| Moss Barnett |  |  |  |
+| Nivas Piduru |  |  |  |
 
 ---
