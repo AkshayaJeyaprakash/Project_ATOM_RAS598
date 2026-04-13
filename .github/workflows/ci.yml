@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: ["Milestone_1"]
+    branches: ["main"]
   pull_request:
 
 jobs:
