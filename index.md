@@ -1,9 +1,28 @@
 ---
-title: Home
 layout: home
+title: Home
 nav_order: 1
 ---
 
-## This is the home page!
+# VLN-Based Semantic Exploration
 
-This is a *bare-minimum* template to create a Jekyll site that uses the [Just the Docs] theme. You can easily set the created site to be published on [GitHub Pages] – the [README] file explains how to do that, along with other details.
+An autonomous mobile robot that understands natural language commands and intelligently explores indoor environments to find and map specified objects.
+
+For example, tell the robot "Find all red objects in the classroom" and watch it autonomously:
+- Explore the environment using Vision-Language Navigation (VLN)
+- Detect target objects with its camera
+- Build an annotated map showing where everything is located
+- Present results without any human intervention
+
+**Robot Platform:** TurtleBot 4  
+**Environment:** Lab 225 (Indoor)  
+**Course:** RAS 598 - Mobile Robotics
+
+---
+
+## Team Members
+
+- Akshaya
+- Moss
+- Nivas
+- ATOM (The TurtleBot)

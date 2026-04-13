@@ -1,4 +1,4 @@
-title: Just the Docs Template
+title: RAS-598 <br> Team ATOM
 description: A starter template for a Jeykll site using the Just the Docs theme!
 theme: just-the-docs
 
@@ -9,3 +9,6 @@ math: mathjax
 
 aux_links:
   Template Repository: https://github.com/just-the-docs/just-the-docs-template
+
+mermaid:
+  version: "9.4.3"
