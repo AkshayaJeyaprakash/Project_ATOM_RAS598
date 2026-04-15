@@ -8,6 +8,9 @@ import math
 import time
 from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
 
+from .color_mapper import get_color_range
+from .scan_point_generator import generate_scan_points, get_closest_scan_point
+
 
 class ExplorationCoordinator(Node):
     def __init__(self):
@@ -15,6 +18,7 @@ class ExplorationCoordinator(Node):
 
         self.state = 'IDLE'
         self.current_task = None
+        self.color_range = None
         self.scan_points = []
         self.visited_scan_points = []
         self.current_scan_point = None
@@ -24,11 +28,20 @@ class ExplorationCoordinator(Node):
         self.last_rotation_time = 0.0
         self.is_paused = False
         self.scanning_active = False
+        self.approach_direction = None
+        self.approach_steps = 0
+        self.max_approach_steps = 3
+        self.approach_origin = None
         self.robot_x = 0.0
         self.robot_y = 0.0
 
+        self.declare_parameter('server_url', 'http://192.168.1.154:5000')
+        self.server_url = self.get_parameter('server_url').value
+
         self.create_subscription(String, '/task_command', self.task_callback, 10)
+        self.create_subscription(String, '/atom/semantic_map', self.map_callback, 10)
         self.create_subscription(String, '/atom/nav_status', self.nav_status_callback, 10)
+        self.create_subscription(String, '/atom/color_detection', self.color_detection_callback, 10)
         self.create_subscription(Odometry, '/atom/odom', self.odom_callback, 10)
 
         map_qos = QoSProfile(
@@ -55,37 +68,65 @@ class ExplorationCoordinator(Node):
             return
 
         self.current_task = msg.data
+        self.color_range = get_color_range(self.current_task)
         self.visited_scan_points = []
         self.rotation_angle = 0.0
         self.scanning_active = False
+
+        self.get_logger().info(
+            f"Task: '{self.current_task}' | "
+            f"Color filter: {'enabled' if self.color_range else 'disabled'}"
+        )
         self.set_state('MOVING_TO_SCAN')
         self.go_to_next_scan_point()
 
     def occupancy_map_callback(self, msg):
         if not self.scan_points:
-            import random
-            width = msg.info.width
-            height = msg.info.height
-            resolution = msg.info.resolution
-            origin_x = msg.info.origin.position.x
-            origin_y = msg.info.origin.position.y
-            data = list(msg.data)
-            free_indices = [i for i, v in enumerate(data) if v == 0]
-            if free_indices:
-                sampled = random.sample(free_indices, min(4, len(free_indices)))
-                points = []
-                for idx in sampled:
-                    row = idx // width
-                    col = idx % width
-                    x = origin_x + col * resolution
-                    y = origin_y + row * resolution
-                    points.append((round(x, 2), round(y, 2)))
+            points = generate_scan_points(msg, num_points=4)
+            if points:
                 self.scan_points = points
                 self.get_logger().info(f"Scan points generated: {self.scan_points}")
 
     def odom_callback(self, msg):
         self.robot_x = msg.pose.pose.position.x
         self.robot_y = msg.pose.pose.position.y
+
+    def map_callback(self, msg):
+        if self.state not in ['SCANNING', 'APPROACHING', 'MOVING_TO_SCAN']:
+            return
+        if not self.current_task:
+            return
+
+        object_map = json.loads(msg.data)
+        result = self.check_map_for_task(object_map, self.current_task)
+        if result and result['x'] != 0.0 and result['y'] != 0.0:
+            self.get_logger().info(
+                f"Target found in map: {result['id']} at ({result['x']:.2f}, {result['y']:.2f})"
+            )
+            self.stop_rotation()
+            self.scanning_active = False
+            self.publish_goal(result['x'], result['y'])
+            self.set_state('VERIFYING')
+
+    def color_detection_callback(self, msg):
+        if self.state != 'SCANNING' or not self.is_paused:
+            return
+        try:
+            data = json.loads(msg.data)
+            if data.get('detected'):
+                self.get_logger().info(
+                    f"Color blob detected! direction={data.get('direction')} "
+                    f"ratio={data.get('ratio', 0):.3f}"
+                )
+                self.stop_rotation()
+                self.scanning_active = False
+                self.approach_direction = data.get('direction', 'center')
+                self.approach_steps = 0
+                self.approach_origin = (self.robot_x, self.robot_y)
+                self.set_state('APPROACHING')
+                self.do_approach_step()
+        except Exception as e:
+            self.get_logger().warn(f'Color detection parse error: {e}')
 
     def nav_status_callback(self, msg):
         status = msg.data
@@ -100,6 +141,15 @@ class ExplorationCoordinator(Node):
                 self.last_rotation_time = time.time()
                 self.scanning_active = True
 
+            elif self.state == 'APPROACHING':
+                trigger_msg = String()
+                trigger_msg.data = json.dumps({
+                    'task': self.current_task,
+                    'mode': 'llava_verify',
+                    'color_range': self.color_range
+                })
+                self.scan_trigger_pub.publish(trigger_msg)
+
             elif self.state == 'VERIFYING':
                 self.get_logger().info("Arrived at target — DONE!")
                 self.set_state('DONE')
@@ -112,6 +162,8 @@ class ExplorationCoordinator(Node):
         elif status in ['GOAL_REJECTED', 'NAV2_UNAVAILABLE']:
             if self.state == 'MOVING_TO_SCAN':
                 self.go_to_next_scan_point()
+            elif self.state == 'APPROACHING':
+                self.return_to_scan_point()
 
     def rotation_timer(self):
         if self.state != 'SCANNING' or not self.scanning_active:
@@ -152,6 +204,7 @@ class ExplorationCoordinator(Node):
         trigger_msg.data = json.dumps({
             'task': self.current_task,
             'angle': self.rotation_angle,
+            'color_range': self.color_range,
             'mode': 'scan'
         })
         self.scan_trigger_pub.publish(trigger_msg)
@@ -160,6 +213,35 @@ class ExplorationCoordinator(Node):
     def stop_rotation(self):
         twist = Twist()
         self.cmd_vel_pub.publish(twist)
+
+    def do_approach_step(self):
+        if self.approach_steps >= self.max_approach_steps:
+            self.get_logger().warn("Max approach steps — false positive, returning")
+            self.return_to_scan_point()
+            return
+
+        step_distance = 0.5
+        offset = 0.0
+        if self.approach_direction == 'left':
+            offset = math.pi / 4
+        elif self.approach_direction == 'right':
+            offset = -math.pi / 4
+
+        goal_x = self.robot_x + step_distance * math.cos(offset)
+        goal_y = self.robot_y + step_distance * math.sin(offset)
+        self.approach_steps += 1
+
+        self.get_logger().info(
+            f"Approach step {self.approach_steps}/{self.max_approach_steps} → ({goal_x:.2f}, {goal_y:.2f})"
+        )
+        self.publish_goal(goal_x, goal_y)
+
+    def return_to_scan_point(self):
+        if self.approach_origin:
+            x, y = self.approach_origin
+            self.get_logger().info(f"Returning to scan origin ({x:.2f}, {y:.2f})")
+            self.publish_goal(x, y)
+            self.set_state('MOVING_TO_SCAN')
 
     def try_generate_scan_points(self):
         if not self.scan_points:
@@ -183,10 +265,7 @@ class ExplorationCoordinator(Node):
             self.set_state('IDLE')
             return
 
-        next_point = min(
-            unvisited,
-            key=lambda p: (p[0] - self.robot_x) ** 2 + (p[1] - self.robot_y) ** 2
-        )
+        next_point = get_closest_scan_point(unvisited, self.robot_x, self.robot_y)
         self.visited_scan_points.append(next_point)
         self.current_scan_point = next_point
         self.get_logger().info(
@@ -194,6 +273,13 @@ class ExplorationCoordinator(Node):
             f"({len(self.visited_scan_points)}/{len(self.scan_points)})"
         )
         self.publish_goal(next_point[0], next_point[1])
+
+    def check_map_for_task(self, object_map, task):
+        task_lower = task.lower()
+        for obj in object_map:
+            if obj['class'].lower() in task_lower and obj['status'] == 'present':
+                return obj
+        return None
 
     def exploration_fallback_timer(self):
         if self.state == 'SCANNING' and self.rotation_angle >= 360.0:
