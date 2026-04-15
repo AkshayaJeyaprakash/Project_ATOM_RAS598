@@ -4,9 +4,21 @@ title: "Milestone 2"
 parent: Project
 nav_order: 2
 ---
-# Milestone 2
+
+# Report 2: Mid-Point Technical Proof
 
 {: .no_toc }
+
+This page presents the mid-point technical development of the project, detailing the implemented system architecture, the underlying kinematic model, the complete ROS 2 computational pipeline, and an analysis of real-world system behavior, including sensor uncertainty and run-time performance.
+
+---
+
+## Table of Contents
+
+{: .no_toc .text-delta }
+
+1. TOC
+{:toc}
 
 ---
 
@@ -60,72 +72,7 @@ $$
 
 ### 2.1 Detailed Computational Map
 
-#### Mermaid Diagram
-```mermaid
-graph TB
-    subgraph Perception
-        A[RPLIDAR A1M8]
-        B[OAK-D Camera]
-        C[IMU]
-    end
-    
-    subgraph Estimation
-        D[SLAM Toolbox]
-        E[Semantic Map Builder - CUSTOM]
-    end
-    
-    subgraph Planning
-        F[VLN Model]
-        G[VLN Integration - CUSTOM]
-        H[Exploration Coordinator - CUSTOM]
-        I[Nav2 Global Planner]
-    end
-    
-    subgraph Actuation
-        J[Diff-Drive Controller]
-        K[Motor Interface]
-    end
-    
-    A --> D
-    B --> L[YOLO Object Detector]
-    C --> D
-    
-    D --> E
-    L --> E
-    
-    E --> F
-    F --> G
-    G --> H
-    H --> I
-    
-    I --> J
-    J --> K
-    
-    E -.Feedback.-> H
-    
-    style E fill:#ffcccc
-    style G fill:#ffcccc
-    style H fill:#ffcccc
-```
-
-### 2.2 Module Descriptions
-
-#### Module Declaration Table
-| Module / Node | Functional Domain | Software Type | Description |
-|---------------|-------------------|---------------|-------------|
-| RPLIDAR Driver | Perception | Library | Acquires 360° laser scan data for obstacle detection and SLAM |
-| OAK-D Camera Driver | Perception | Library | Provides RGB images and depth maps from a spatial AI camera |
-| IMU Driver | Perception | Library | Supplies orientation and acceleration data |
-| YOLO Object Detector | Perception | Library | Pre-trained neural network for real-time object detection |
-| SLAM Toolbox | Estimation | Library | Performs simultaneous localization and mapping using laser scans |
-| **Semantic Map Builder** | **Estimation** | **Custom** | **Fuses object detections with SLAM pose to create annotated map** |
-| VLN Model | Planning | Library | Pre-trained vision-language model for navigation decision-making |
-| **VLN Integration** | **Planning** | **Custom** | **Bridges VLN model outputs to ROS navigation stack** |
-| **Exploration Coordinator** | **Planning** | **Custom** | **Manages exploration loop and task completion criteria** |
-| Nav2 Global Planner | Planning | Library | Computes collision-free paths on occupancy grid |
-| Diff-Drive Controller | Actuation | Library | Translates velocity commands to wheel motor controls |
-
----
+TODO
 
 ## 3. Experimental Analysis & Validation
 
@@ -134,6 +81,8 @@ graph TB
 ### 3.2 Run-Time Issues
 
 ### 3.3 Milestone Video
+
+TODO
 
 ---
 
@@ -153,7 +102,7 @@ graph TB
 
 | Team Member | Primary Technical Role | Key Git Commits/PRs | Specific File(s) Authorship (Direct Links) |
 |-------------|------------------------|---------------------|--------------------------------------------|
-| Ackshaya J |  |  |  |
+| Akshaya J |  |  |  |  |
 | Moss Barnett |  |  |  |
 | Nivas Piduru |  |  |  |
 
