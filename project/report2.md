@@ -346,9 +346,19 @@ TF2 extrapolation errors ("Lookup would require extrapolation into the past") ap
 
 The first video demonstrates the stability and correctness of the SLAM and navigation stack in isolation. In this experiment, an initial pose is manually set using RViz, after which a target goal pose is provided through the navigation interface. The robot successfully plans and executes a collision-free path from the initial pose to the target location using the Nav2 stack, validating the integration between SLAM-based localization and the global planner. The motion is smooth and consistent, indicating that the underlying occupancy grid, costmaps, and control pipeline are functioning as expected. This experiment confirms that the geometric navigation layer of the system is reliable when operating independently of higher-level perception and decision modules.
 
+<video width="800" controls>
+  <source src="../assets/SLAM.mp4" type="video/mp4">
+  Your browser does not support the video tag.
+</video>
+
 #### **Object Detection and Reactive Behavior**
 
 The second video demonstrates the perception-driven behavior of the system using the object detection pipeline. In this setup, the robot continuously processes camera input and performs object detection using the YOLO-based inference pipeline. When the specified target object is present in the camera view, the system halts robot motion, indicating successful detection and triggering of the stop condition. Conversely, when the object is removed from the scene, the robot resumes motion, demonstrating a reactive control loop driven by perception signals. For the purpose of this demonstration, a fixed navigation goal was temporarily hard-coded, as the scan point generation module has not yet been fully integrated into the exploration loop. This experiment validates that the perception pipeline and control interface operate correctly when tested independently.
+
+<video width="800" controls>
+  <source src="../assets/YOLO.mp4" type="video/mp4">
+  Your browser does not support the video tag.
+</video>
 
 ### 3.4 Future Improvements
 

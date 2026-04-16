@@ -1,5 +1,5 @@
 ## MILESTONE 2: Merge Approval
 
-- [ ] Akshaya J  
-- [ ] Moss Barnett  
-- [ ] Nivas Piduru
+- [x] Akshaya J  
+- [x] Moss Barnett  
+- [x] Nivas Piduru
