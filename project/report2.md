@@ -284,7 +284,7 @@ $$
 
 * The exploration coordinator implements a state machine governing the robot’s behavior:
 $$
-\text{IDLE} \rightarrow \text{MOVING\_TO\_SCAN} \rightarrow \text{SCANNING} \rightarrow \text{APPROACHING} \rightarrow \text{VERIFYING} \rightarrow \text{DONE}
+\text{IDLE} \rightarrow \text{MOVING-TO-SCAN} \rightarrow \text{SCANNING} \rightarrow \text{APPROACHING} \rightarrow \text{VERIFYING} \rightarrow \text{DONE}
 $$
 
 * Exploration is driven by scan points generated from the occupancy grid, ensuring systematic coverage of the environment.
