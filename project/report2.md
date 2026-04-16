@@ -315,14 +315,58 @@ $$
 * In the current implementation, these outputs are not directly used to control navigation, but the module provides a framework for future integration of vision-language navigation models.
 
 
-
 ## 3. Experimental Analysis & Validation
 
 ### 3.1 Noise & Uncertainty Analysis
 
-### 3.2 Run-Time Issues
+**Hardware Sensor Characterization**
+
+Operating on the real TurtleBot 4 Lite exposed several noise sources that required explicit handling. The RPLidar initially caused "Message Filter dropping message" warnings during startup due to TF2 timestamp mismatches between the `rplidar_link` and `map` frames. This is a known timing artifact when localization initializes before the TF tree is fully populated, and it resolves automatically within 5–10 seconds of AMCL convergence. The `lidar_processor.py` node addresses range validity by discarding readings outside [0.1, 12.0] meters, which eliminates spurious near-field and far-field outliers from the scan.
+
+Odometry noise was characterized by examining AMCL covariance values at startup. Immediately after setting a manual 2D pose estimate in RViz, the AMCL covariance on the x-axis was approximately 0.037 and on the y-axis approximately 0.076 — consistent with a coarse initial pose estimate. After the robot moved 0.3–0.5 meters and AMCL processed several LiDAR scans, covariance dropped below 0.01, indicating good localization convergence. The `goal_publisher.py` uses this covariance signal to detect when a new 2D pose has been manually set (covariance > 0.1 threshold), storing the pose as the home location.
+
+Camera depth estimation is currently approximated using bounding box size: a larger bounding box implies a closer object, yielding an estimated depth via $d = 3.0 \times (1 - A_{bbox}/A_{frame})$. This is a known limitation, real stereo depth from `/oakd/stereo/image_raw` is planned for the next iteration.
+
+**Simulation Noise Injector**
+
+As we are working on real hardware based solution for this project, noise injection for simulation was not written.
+
+
+### 3.2 Run-Time Issues & Recovery Logic
+
+The following run-time issues were encountered and resolved during Milestone 2 development.
+
+The most disruptive issue was `bt_navigator` failing to activate because the default Nav2 behavior tree XML referenced a `backup` action server that had been disabled in `nav2_no_reverse.yaml`. The fix was adding `default_nav_to_pose_bt_xml` and `default_nav_through_poses_bt_xml` parameters pointing to `navigate_w_replanning_only_if_path_becomes_invalid.xml`, which contains no backup action dependency. This resolved the "Failed to bring up all requested nodes" error that had prevented any navigation.
+
+TF2 extrapolation errors ("Lookup would require extrapolation into the past") appeared when Nav2 goals were sent before AMCL had produced sufficient transform history. The solution is procedural: always wait for the initial pose to be confirmed (AMCL logs "Setting pose") before launching Nav2, and always set the 2D pose estimate before sending task commands. Additionally, `bt_navigator` sometimes required manual lifecycle activation via `ros2 lifecycle set /bt_navigator configure && activate` when the lifecycle manager timed out.
 
 ### 3.3 Milestone Video
+
+#### **SLAM and Navigation Validation**
+
+The first video demonstrates the stability and correctness of the SLAM and navigation stack in isolation. In this experiment, an initial pose is manually set using RViz, after which a target goal pose is provided through the navigation interface. The robot successfully plans and executes a collision-free path from the initial pose to the target location using the Nav2 stack, validating the integration between SLAM-based localization and the global planner. The motion is smooth and consistent, indicating that the underlying occupancy grid, costmaps, and control pipeline are functioning as expected. This experiment confirms that the geometric navigation layer of the system is reliable when operating independently of higher-level perception and decision modules.
+
+#### **Object Detection and Reactive Behavior**
+
+The second video demonstrates the perception-driven behavior of the system using the object detection pipeline. In this setup, the robot continuously processes camera input and performs object detection using the YOLO-based inference pipeline. When the specified target object is present in the camera view, the system halts robot motion, indicating successful detection and triggering of the stop condition. Conversely, when the object is removed from the scene, the robot resumes motion, demonstrating a reactive control loop driven by perception signals. For the purpose of this demonstration, a fixed navigation goal was temporarily hard-coded, as the scan point generation module has not yet been fully integrated into the exploration loop. This experiment validates that the perception pipeline and control interface operate correctly when tested independently.
+
+### 3.4 Future Improvements
+
+* The current system exhibits inconsistent behavior when all modules are integrated, particularly in the interaction between the exploration coordinator and the perception pipeline. Future work will focus on debugging and stabilizing the exploration coordinator, ensuring that state transitions and perception-triggered events are handled deterministically and without unintended delays or race conditions.
+
+* The scan point generation module, although implemented, is not yet fully integrated into the exploration loop. Future development will focus on replacing the temporary hard-coded navigation goals with dynamically generated scan points derived from the occupancy grid, enabling systematic and autonomous exploration of the environment.
+
+* The current depth estimation approach relies on bounding box area as a proxy for distance:
+$$
+  [
+  d \propto \left(1 - \frac{A_{\text{bbox}}}{A_{\text{frame}}}\right)
+  ]
+$$
+  which introduces significant inaccuracies due to perspective distortion and object size variability. This approximation will be replaced with a more robust depth estimation method, leveraging stereo depth from the OAK-D camera or geometric projection techniques.
+
+* The system currently exhibits limitations in accurately approaching detected objects, often failing to reach precise target positions. This is attributed to both depth estimation inaccuracies and coordination issues within the exploration pipeline. Future improvements will focus on tighter coupling between perception outputs and navigation goals to achieve more precise object-centric motion.
+
+* The integration of perception modules into a unified decision-making pipeline remains partial. At present, YOLO is fully integrated and serves as the primary perception backbone for object detection. Future work will focus on incorporating CLIP-based scoring to guide exploration direction by evaluating scene relevance with respect to the task, and integrating LLaVA for robust semantic validation of detected objects. This will enable a more coherent vision-language navigation framework where directional exploration is informed by CLIP, detection is handled by YOLO, and final confirmation is performed using LLaVA, replacing the current reliance on primarily geometric scanning and reactive behavior.
 
 
 ## 4. Project Management
