@@ -5,9 +5,12 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
 from std_msgs.msg import String, Float32
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
 from nav2_msgs.action import NavigateToPose
+from nav2_msgs.srv import ClearEntireCostmap
 from std_srvs.srv import Trigger
 import json
 import math
+
+from atom_bringup.config import STOP_DISTANCE_THRESHOLD, COSTMAP_SETTLE_DELAY
 
 
 class GoalPublisher(Node):
@@ -23,8 +26,6 @@ class GoalPublisher(Node):
         self._home_pose = None
 
         self._depth_client = self.create_client(Trigger, '/atom/get_depth')
-
-        from nav2_msgs.srv import ClearEntireCostmap
         self._clear_costmap_client = self.create_client(
             ClearEntireCostmap,
             '/local_costmap/clear_entirely_local_costmap'
@@ -33,10 +34,12 @@ class GoalPublisher(Node):
             ClearEntireCostmap,
             '/global_costmap/clear_entirely_global_costmap'
         )
-        self._stop_distance_m = 0.6
+
+        self._stop_distance_m = STOP_DISTANCE_THRESHOLD
         self._pending_spot = None
         self._depth_future = None
         self._pending_nav_goal = None
+        self._settle_timer_fired = True
 
         qos_transient = QoSProfile(
             reliability=ReliabilityPolicy.RELIABLE,
@@ -45,6 +48,8 @@ class GoalPublisher(Node):
         )
 
         self.create_subscription(String, '/exploration_goal', self.goal_callback, 10)
+        self.create_subscription(String, '/atom/task_status', self.task_status_callback, 10)
+        self.create_subscription(String, '/atom/emergency_stop', self.emergency_stop_callback, 10)
         self.create_subscription(String, '/atom/object_spotted', self.object_spotted_callback, 10)
         self.create_subscription(String, '/atom/resume_navigation', self.resume_callback, 10)
         self.create_subscription(String, '/atom/approach_goal', self.approach_goal_callback, 10)
@@ -59,17 +64,46 @@ class GoalPublisher(Node):
         self.get_logger().info('GoalPublisher started | action: /navigate_to_pose')
 
         self.create_timer(0.1, self._depth_check_timer)
+        self.create_timer(COSTMAP_SETTLE_DELAY, self._send_pending_nav_goal)
 
     def amcl_pose_callback(self, msg: PoseWithCovarianceStamped):
         cov = msg.pose.covariance[0]
-        if cov > 0.1:
+
+        if cov < 0.1 and self._home_pose is None:
             self._home_pose = (
                 msg.pose.pose.position.x,
                 msg.pose.pose.position.y
             )
+
             self.get_logger().info(
                 f'Home pose stored: ({self._home_pose[0]:.2f}, {self._home_pose[1]:.2f})'
             )
+
+    def emergency_stop_callback(self, msg: String):
+        command = msg.data.strip().strip("'").strip('"').upper()
+
+        if command == 'EMERGENCY_STOP':
+            self.get_logger().error('EMERGENCY STOP — cancelling Nav2 goal')
+            self._cancel_current_goal()
+            self._is_paused = False
+            self._is_approaching = False
+            self._pending_spot = None
+            self._depth_future = None
+
+        elif command == 'EMERGENCY_RESUME':
+            self.get_logger().info('EMERGENCY RESUME — resetting to IDLE')
+            self._is_paused = False
+            self._is_approaching = False
+            self._pending_spot = None
+            self._depth_future = None
+
+    def task_status_callback(self, msg: String):
+        if 'GOAL COMPLETED' in msg.data or 'OBJECT_NOT_FOUND' in msg.data:
+            self.get_logger().info(f'Task status: {msg.data}')
+            self._is_paused = False
+            self._is_approaching = False
+            self._pending_spot = None
+            self._depth_future = None
 
     def goal_callback(self, msg: String):
         try:
@@ -77,37 +111,47 @@ class GoalPublisher(Node):
             x = float(data['x'])
             y = float(data['y'])
             is_final = bool(data.get('final', False))
+
             self._is_approaching = False
 
             try:
                 from nav2_msgs.srv import ClearEntireCostmap
+
                 if self._clear_costmap_client.wait_for_service(timeout_sec=1.0):
                     self._clear_costmap_client.call_async(ClearEntireCostmap.Request())
                     self.get_logger().info('Local costmap cleared')
+
                 if self._clear_global_costmap_client.wait_for_service(timeout_sec=1.0):
                     self._clear_global_costmap_client.call_async(ClearEntireCostmap.Request())
                     self.get_logger().info('Global costmap cleared')
+
             except Exception as ce:
                 self.get_logger().warn(f'Costmap clear failed: {ce}')
 
             self.get_logger().info(f'Goal received: ({x:.2f}, {y:.2f}) final={is_final}')
 
             self._pending_nav_goal = (x, y, is_final)
-            self.create_timer(1.5, self._send_pending_nav_goal)
+            self._settle_timer_fired = False
+
         except Exception as e:
             self.get_logger().error(f'goal_callback failed: {e}')
 
     def _send_pending_nav_goal(self):
-        if self._pending_nav_goal is None:
+        if self._pending_nav_goal is None or self._settle_timer_fired:
             return
+
+        self._settle_timer_fired = True
         x, y, is_final = self._pending_nav_goal
         self._pending_nav_goal = None
+
         self.get_logger().info(f'Sending goal after costmap settle: ({x:.2f}, {y:.2f})')
+
         self._send_nav2_goal(x, y, is_final)
 
     def object_spotted_callback(self, msg: String):
         if self._is_paused:
             return
+
         try:
             data = json.loads(msg.data)
             obj_class = data.get('class', 'unknown')
@@ -118,6 +162,7 @@ class GoalPublisher(Node):
                 self.get_logger().info(
                     f'Object spotted during approach: {obj_class} ({confidence:.2f})'
                 )
+
                 if bbox is not None:
                     bbox_msg = String()
                     bbox_msg.data = json.dumps({'bbox': bbox, 'class': obj_class})
@@ -128,14 +173,15 @@ class GoalPublisher(Node):
                         'confidence': confidence,
                         'bbox': bbox
                     }
+
                     if self._depth_client.wait_for_service(timeout_sec=0.5):
-                        self._depth_future = self._depth_client.call_async(
-                            Trigger.Request()
-                        )
+                        self._depth_future = self._depth_client.call_async(Trigger.Request())
+
             else:
                 self.get_logger().info(
                     f'Object spotted: {obj_class} ({confidence:.2f})'
                 )
+
                 self._is_paused = True
                 self._cancel_current_goal()
                 self._publish_status('PAUSED_FOR_VALIDATION')
@@ -150,10 +196,9 @@ class GoalPublisher(Node):
                         'confidence': confidence,
                         'bbox': bbox
                     }
+
                     if self._depth_client.wait_for_service(timeout_sec=0.5):
-                        self._depth_future = self._depth_client.call_async(
-                            Trigger.Request()
-                        )
+                        self._depth_future = self._depth_client.call_async(Trigger.Request())
                     else:
                         self.get_logger().warn('Depth service not available')
                         self._pending_spot = None
@@ -164,21 +209,21 @@ class GoalPublisher(Node):
     def _depth_check_timer(self):
         if self._depth_future is None or self._pending_spot is None:
             return
+
         if not self._depth_future.done():
             return
 
         try:
             response = self._depth_future.result()
             spot = self._pending_spot
+
             self._depth_future = None
             self._pending_spot = None
 
             obj_class = spot['class']
 
             if not response.success:
-                self.get_logger().warn(
-                    f'Depth service failed: {response.message}'
-                )
+                self.get_logger().warn(f'Depth service failed: {response.message}')
                 return
 
             distance_m = float(response.message)
@@ -188,12 +233,13 @@ class GoalPublisher(Node):
             self.distance_pub.publish(dist_msg)
 
             self.get_logger().info(
-                f'Distance to {obj_class}: {distance_m:.2f}m'
+                f'Distance to {obj_class}: {distance_m:.2f}m | threshold: {self._stop_distance_m}m'
             )
 
-            self.get_logger().info(
-                f'Distance published: {distance_m:.3f}m'
-            )
+            self.get_logger().info(f'Distance published: {distance_m:.3f}m')
+
+            if not self._is_approaching:
+                self.get_logger().info(f'Object at {distance_m:.2f}m')
 
         except Exception as e:
             self.get_logger().error(f'_depth_check_timer failed: {e}')
@@ -204,11 +250,13 @@ class GoalPublisher(Node):
         if self._is_approaching:
             self.get_logger().info('Resume called during approach')
             return
+
         if self._saved_goal and self._is_paused:
             x, y = self._saved_goal
             self.get_logger().info(f'Resuming navigation to ({x:.2f}, {y:.2f})')
             self._is_paused = False
             self._send_nav2_goal(x, y)
+
         else:
             self.get_logger().info('Resume called')
             self._is_paused = False
@@ -219,21 +267,24 @@ class GoalPublisher(Node):
             x = float(data['x'])
             y = float(data['y'])
             yaw = float(data.get('yaw', 0.0))
+
             self.get_logger().info(
-                f'Approach goal received: ({x:.2f}, {y:.2f})'
+                f'Approach goal received: ({x:.2f}, {y:.2f}) yaw: {math.degrees(yaw):.1f}°'
             )
+
             self._is_approaching = True
             self._is_paused = False
 
             try:
-                from nav2_msgs.srv import ClearEntireCostmap
                 if self._clear_costmap_client.wait_for_service(timeout_sec=0.5):
                     self._clear_costmap_client.call_async(ClearEntireCostmap.Request())
                     self.get_logger().info('Local costmap cleared')
+
             except Exception as ce:
                 self.get_logger().warn(f'Costmap clear failed: {ce}')
 
             self._send_nav2_goal(x, y, is_final=False, yaw=yaw)
+
         except Exception as e:
             self.get_logger().error(f'approach_goal_callback failed: {e}')
 
@@ -241,9 +292,12 @@ class GoalPublisher(Node):
         if self._home_pose is None:
             self.get_logger().warn('No home pose stored yet')
             return
+
         x, y = self._home_pose
         self._is_approaching = False
+
         self.get_logger().info(f'Returning home: ({x:.2f}, {y:.2f})')
+
         self._send_nav2_goal(x, y)
 
     def _send_nav2_goal(self, x: float, y: float, is_final: bool = False, yaw: float = 0.0):
@@ -254,8 +308,10 @@ class GoalPublisher(Node):
 
         goal_msg = NavigateToPose.Goal()
         goal_msg.pose = PoseStamped()
+
         goal_msg.pose.header.frame_id = 'map'
         goal_msg.pose.header.stamp = self.get_clock().now().to_msg()
+
         goal_msg.pose.pose.position.x = x
         goal_msg.pose.pose.position.y = y
         goal_msg.pose.pose.position.z = 0.0
@@ -269,10 +325,12 @@ class GoalPublisher(Node):
         self._is_paused = False
 
         self.get_logger().info(f'Sending Nav2 goal: ({x:.2f}, {y:.2f})')
+
         future = self._nav_client.send_goal_async(
             goal_msg,
             feedback_callback=self._feedback_callback
         )
+
         future.add_done_callback(
             lambda f, final=is_final: self._goal_response_callback(f, final)
         )
@@ -285,16 +343,19 @@ class GoalPublisher(Node):
 
     def _goal_response_callback(self, future, is_final: bool = False):
         goal_handle = future.result()
+
         if not goal_handle.accepted:
             self.get_logger().warn('Goal rejected by Nav2')
             self._publish_status('GOAL_REJECTED')
             return
 
         self._current_goal_handle = goal_handle
+
         self.get_logger().info('Goal accepted by Nav2')
         self._publish_status('GOAL_ACCEPTED')
 
         result_future = goal_handle.get_result_async()
+
         result_future.add_done_callback(
             lambda f, final=is_final: self._result_callback(f, final)
         )
@@ -303,9 +364,7 @@ class GoalPublisher(Node):
         self._current_goal_handle = None
 
         if self._is_paused:
-            self.get_logger().info(
-                'Navigation cancelled for validation'
-            )
+            self.get_logger().info('Navigation cancelled for validation')
             return
 
         result = future.result()
@@ -314,10 +373,12 @@ class GoalPublisher(Node):
         if error_code == 0:
             self.get_logger().info('Navigation succeeded')
             self._publish_status('GOAL_REACHED')
+
             if is_final:
                 self._publish_user_message(
                     'GOAL COMPLETED — Object found and reached.'
                 )
+
         else:
             self.get_logger().warn(f'Navigation failed — error_code: {error_code}')
             self._publish_status('GOAL_REJECTED')
@@ -329,22 +390,28 @@ class GoalPublisher(Node):
     def _publish_status(self, status: str):
         msg = String()
         msg.data = status
+
         self.status_pub.publish(msg)
         self.get_logger().info(f'Nav status: {status}')
 
     def _publish_user_message(self, message: str):
         msg = String()
         msg.data = message
+
         self.user_msg_pub.publish(msg)
         self.get_logger().info(f'USER: {message}')
 
 
 def main(args=None):
     rclpy.init(args=args)
+
     node = GoalPublisher()
+
     rclpy.spin(node)
+
     node.destroy_node()
     rclpy.shutdown()
+
 
 if __name__ == '__main__':
     main()
