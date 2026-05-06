@@ -30,6 +30,7 @@ class GoalPublisher(Node):
             ClearEntireCostmap,
             '/local_costmap/clear_entirely_local_costmap'
         )
+
         self._clear_global_costmap_client = self.create_client(
             ClearEntireCostmap,
             '/global_costmap/clear_entirely_global_costmap'
@@ -115,8 +116,6 @@ class GoalPublisher(Node):
             self._is_approaching = False
 
             try:
-                from nav2_msgs.srv import ClearEntireCostmap
-
                 if self._clear_costmap_client.wait_for_service(timeout_sec=1.0):
                     self._clear_costmap_client.call_async(ClearEntireCostmap.Request())
                     self.get_logger().info('Local costmap cleared')
