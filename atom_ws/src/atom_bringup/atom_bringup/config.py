@@ -13,3 +13,7 @@ COSTMAP_SETTLE_DELAY    = 1.5    # seconds to wait after costmap clear before se
 
 # ── Memory [exploration_coordinator.py, memory_mapper.py] ────────────────────
 MEMORY_FILE = '~/maps/memory.json'   # path to memory JSON file
+
+# ── Safety monitor [safety_monitor.py] ────────────────────────────────────────
+LOW_BATTERY_THRESHOLD = 0.05     # battery percentage to trigger autodock (0.0-1.0 = 20%)
+BATTERY_CHECK_INTERVAL = 30.0   # seconds between battery checks
