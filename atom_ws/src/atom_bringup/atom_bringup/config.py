@@ -10,3 +10,6 @@ TARGET_LOST_TIMEOUT   = 5.0    # seconds before declaring target lost
 # ── Goal publisher [goal_publisher.py] ────────────────────────────────────────
 STOP_DISTANCE_THRESHOLD = 0.6    # distance threshold for object detection stop (meters)
 COSTMAP_SETTLE_DELAY    = 1.5    # seconds to wait after costmap clear before sending goal
+
+# ── Memory [exploration_coordinator.py, memory_mapper.py] ────────────────────
+MEMORY_FILE = '~/maps/memory.json'   # path to memory JSON file
