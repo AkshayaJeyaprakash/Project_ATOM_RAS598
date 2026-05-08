@@ -18,12 +18,9 @@ def generate_launch_description():
         server_url_arg,
 
         Node(package='atom_bringup', executable='camera_processor', name='camera_processor', parameters=[{'robot_namespace': robot_ns}], output='screen'),
-        Node(package='atom_bringup', executable='lidar_processor', name='lidar_processor', parameters=[{'robot_namespace': robot_ns}], output='screen'),
         Node(package='atom_bringup', executable='object_detector', name='object_detector', parameters=[{'server_url': server_url}], output='screen'),
-        Node(package='atom_bringup', executable='clip_scorer', name='clip_scorer', parameters=[{'server_url': server_url}], output='screen'),
-        Node(package='atom_bringup', executable='semantic_map_builder', name='semantic_map_builder', parameters=[{'dedup_threshold': 0.5}], output='screen'),
         Node(package='atom_bringup', executable='exploration_coordinator', name='exploration_coordinator', output='screen'),
-        Node(package='atom_bringup', executable='kinematics_node', name='kinematics_node', parameters=[{'wheel_radius':0.0352, 'wheelbase':0.233}], output='screen'),
         Node(package='atom_bringup', executable='goal_publisher', name='goal_publisher', parameters=[{'robot_namespace': robot_ns}], output='screen'),
-        Node(package='atom_bringup', executable='vln_integration', name='vln_integration', parameters=[{'server_url': server_url}], output='screen'),
+        Node(package='atom_bringup', executable='memory_mapper', name='memory_mapper', output='screen'),
+        Node(package='atom_bringup', executable='safety_monitor', name='safety_monitor', output='screen'),
     ])
