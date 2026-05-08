@@ -1,4 +1,6 @@
 from setuptools import find_packages, setup
+import os
+from glob import glob
 
 package_name = 'atom_bringup'
 
@@ -10,7 +12,8 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        ('share/' + package_name + '/launch', ['launch/atom_bringup.launch.py']),
+        (os.path.join('share', 'atom_bringup', 'launch'),
+            glob('launch/*.launch.py')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -25,24 +28,12 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            # Perception nodes
-            'lidar_processor = atom_bringup.lidar_processor:main',
             'camera_processor = atom_bringup.camera_processor:main',
-
-            # AI nodes
-            'object_detector = atom_bringup.object_detector:main',
-            'clip_scorer = atom_bringup.clip_scorer:main',
-
-            # Core custom nodes
-            'semantic_map_builder = atom_bringup.semantic_map_builder:main',
-            'exploration_coordinator = atom_bringup.exploration_coordinator:main',
-            'kinematics_node = atom_bringup.kinematics_node:main',
-
-            # Navigation
             'goal_publisher = atom_bringup.goal_publisher:main',
-
-            # VLN bridge (refactored)
-            'vln_integration = atom_bringup.vln_integration:main',
+            'object_detector = atom_bringup.object_detector:main',
+            'exploration_coordinator = atom_bringup.exploration_coordinator:main',
+            'memory_mapper = atom_bringup.memory_mapper:main',
+            'safety_monitor = atom_bringup.safety_monitor:main',
         ],
     },
 )
