@@ -399,8 +399,49 @@ A `_celebrating` flag prevents re-triggering if duplicate `GOAL COMPLETED` messa
 
 ---
 
-## 12. Benchmarking and results
+## 12. Benchmarking & Results
 
+### 12.1 Trial Methodology
+- Objects tested: bottle, cup, mug
+- Success criterion: robot reaches within 0.45m of the correct object without human intervention
+
+### 12.2 Results
+
+| Object Class | Trials | Successes | Failures | Success Rate |
+|---|---|---|---|---|
+| Bottle | 12 | 10 | 2 | 83% |
+| Cup | 12 | 8 | 4 | 75% |
+| fire-extinguisher | 1 | 1 | 0 | 100% |
+| **Total** | **25** | **18** | **7** | **72%** |
+
+| Strategy | Trials | Avg Time to Find (s) | Success Rate |
+|---|---|---|---|
+| Memory-guided navigation | 5 | 10-15 sec | 80% |
+| Boustrophedon exploration | 5 | 5-10mins | 20% |
+
+Memory-guided navigation was consistently faster because it navigates directly to known object locations rather than systematically covering the entire environment. Search time with memory scales with the distance to the best-confidence memory pose; exploration time scales with environment size.
+
+| Failure Mode | Count | Root Cause |
+|---|---|---|
+| Object moved since mapping | 2 | Memory pose stale — object no longer visible from stored viewpoint |
+| Nav2 path rejection (error 104) | 5 | No collision-free path within MPPI planning horizon |
+| CLIP/LLaVA false negative | 2 | Poor lighting or small object size reduced model confidence |
+
+### 12.3 Demo Videos
+
+Recording 1: Video of the robot exploring and reaching the fire extinguisher.
+<video controls width="800">
+<source src="../assets/Exploration.mp4" type="video/mp4">
+Your browser does not support the video tag.
+</video>
+
+Recording 2: Video of Autodock.
+<video controls width="800">
+<source src="../assets/Dock.mp4" type="video/mp4">
+Your browser does not support the video tag.
+</video>
+
+---
 
 ## 13. Ethical Impact Statement 
 
