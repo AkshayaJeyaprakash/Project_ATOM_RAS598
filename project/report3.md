@@ -430,16 +430,10 @@ Memory-guided navigation was consistently faster because it navigates directly t
 ### 12.3 Demo Videos
 
 Recording 1: Video of the robot exploring and reaching the fire extinguisher.
-<video controls width="800">
-<source src="../assets/Exploration.mp4" type="video/mp4">
-Your browser does not support the video tag.
-</video>
+[![Watch the Docking Demo](https://img.youtube.com/vi/H7eNWHjfP0s/0.jpg)](https://youtu.be/H7eNWHjfP0s)
 
 Recording 2: Video of Autodock.
-<video controls width="800">
-<source src="../assets/Dock.mp4" type="video/mp4">
-Your browser does not support the video tag.
-</video>
+[![Watch the Exploration Demo](https://img.youtube.com/vi/XrjEcctO69g/0.jpg)](https://youtu.be/XrjEcctO69g)
 
 ---
 
