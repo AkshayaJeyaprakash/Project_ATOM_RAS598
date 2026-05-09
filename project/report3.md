@@ -330,3 +330,19 @@ This sort order is what makes memory-guided navigation effective — the robot a
 The memory mapper also runs during autonomous navigation, not just during teleop. This means objects encountered during a search task are automatically recorded for future searches — the robot's spatial knowledge grows with use.
 
 ---
+
+## 9. Goal Publisher — Nav2 Interface
+
+The `goal_publisher` is the single point of contact between ATOM's logic and Nav2. No other node talks to Nav2 directly — they all go through goal publisher. This separation means Nav2 can be swapped or reconfigured without touching any of the logic nodes.
+
+When it receives a navigation goal from the coordinator, goal publisher first clears both the local (3m × 3m rolling window) and global (full map) costmaps. This removes stale obstacle markings — particularly important because the detected object may have been marked as an obstacle by the LiDAR scan. After clearing, a single reusable timer waits 1.5 seconds for fresh LiDAR data to repopulate the costmap, then sends the goal to Nav2 as a `NavigateToPose` action. The goal pose is encoded as a `PoseStamped` in the map frame. The orientation is a quaternion for a pure Z-axis rotation by heading angle ψ:
+
+$$
+q = \begin{bmatrix} 0 \\ 0 \\ \sin(\psi/2) \\ \cos(\psi/2) \end{bmatrix}
+$$
+
+Nav2 uses the MPPI (Model Predictive Path Integral) controller to plan and follow the path. MPPI samples K = 2000 random candidate trajectories, scores each against a cost function (path alignment weight 14.0, obstacle penalty 1,000,000, forward preference weight 5.0), and takes the weighted average of the best trajectories as the control output. The no-reverse constraint (vx_min: 0.0) is enforced as a hard lower bound on linear velocity, preventing the robot from reversing into people or furniture.
+
+Goal publisher distinguishes between two navigation modes: exploration goals (where a spotted object should cancel navigation and trigger centering) and approach goals (where a spotted object should only trigger a depth check, not cancel navigation). This prevents the robot from cancelling its own approach because it sees the very object it is heading toward.
+
+---
