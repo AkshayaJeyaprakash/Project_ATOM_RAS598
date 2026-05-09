@@ -398,3 +398,37 @@ When `GOAL COMPLETED` appears on `/atom/task_status`, the node simultaneously tr
 A `_celebrating` flag prevents re-triggering if duplicate `GOAL COMPLETED` messages arrive. The flag resets 4 seconds after triggering, making the node ready for the next task.
 
 ---
+
+## 12. Benchmarking and results
+
+
+## 13. Ethical Impact Statement 
+
+
+## 14. Custom Module Code Links
+
+Camera Processor ([camera_processor.py](https://github.com/AkshayaJeyaprakash/Project_ATOM_RAS598/blob/Milestone_3/atom_ws/src/atom_bringup/atom_bringup/camera_processor.py))
+
+Object Detector ([object_detector.py](https://github.com/AkshayaJeyaprakash/Project_ATOM_RAS598/blob/Milestone_3/atom_ws/src/atom_bringup/atom_bringup/object_detector.py))
+
+Exploration Coordinator ([exploration_coordinator.py](https://github.com/AkshayaJeyaprakash/Project_ATOM_RAS598/blob/Milestone_3/atom_ws/src/atom_bringup/atom_bringup/exploration_coordinator.py))
+
+Goal Publisher ([goal_publisher.py](https://github.com/AkshayaJeyaprakash/Project_ATOM_RAS598/blob/Milestone_3/atom_ws/src/atom_bringup/atom_bringup/goal_publisher.py))
+
+Memory Mapper ([memory_mapper.py](https://github.com/AkshayaJeyaprakash/Project_ATOM_RAS598/blob/Milestone_3/atom_ws/src/atom_bringup/atom_bringup/memory_mapper.py))
+
+Safety Monitor ([safety_monitor.py](https://github.com/AkshayaJeyaprakash/Project_ATOM_RAS598/blob/Milestone_3/atom_ws/src/atom_bringup/atom_bringup/safety_monitor.py))
+
+Streamlit ([streamlit.py](https://github.com/AkshayaJeyaprakash/Project_ATOM_RAS598/blob/Milestone_3/atom_ws/src/atom_bringup/atom_bringup/streamlit.py))
+
+---
+
+## 15. Individual Contribution
+
+| Team Member | Primary Technical Role | Key Commits | Specific File(s) / Components |
+|-------------|--------------------------|-------------|-------------------------------|
+| Nivas Piduru | Object Detection, Memory Mapping & Autonomous Exploration | [92f4aec](https://github.com/AkshayaJeyaprakash/Project_ATOM_RAS598/commit/92f4aecf67a4d713561bbae2b9f4fadede8ee094), [a27fd5c](https://github.com/AkshayaJeyaprakash/Project_ATOM_RAS598/commit/a27fd5c0803ef2136a2599c047f2582ecad9513f), [4b26b9b](https://github.com/AkshayaJeyaprakash/Project_ATOM_RAS598/commit/4b26b9b5f8caafce1d373f5ea36b8e993f34946a), [54fbfc2](https://github.com/AkshayaJeyaprakash/Project_ATOM_RAS598/commit/54fbfc28eddbd8fbfbbdfd105d77997a90369fee) | object_detector.py <br> memory_mapper.py <br> exploration_coordinator.py |
+| Akshaya Jeyaprakash | Navigation Goal Management, Safety Monitoring & Exploration Coordination | [dd333fd](https://github.com/AkshayaJeyaprakash/Project_ATOM_RAS598/commit/dd333fde6d69f0235508b199c01682292116503f), [0af5dca](https://github.com/AkshayaJeyaprakash/Project_ATOM_RAS598/commit/0af5dcab0955661fb51b7929ec7e2b099ea24a46), [f216f44](https://github.com/AkshayaJeyaprakash/Project_ATOM_RAS598/commit/f216f440951507cf41d2f3b196c36ac6f074f358), [b303e16](https://github.com/AkshayaJeyaprakash/Project_ATOM_RAS598/commit/b303e1654506258d2f2141426abf879c3607dda4) | goal_publisher.py <br> safety_monitor.py <br> exploration_coordinator.py |
+| Moss Barnet | Depth Processing, Backend Communication & Visualization Interface | [e2dc32d](https://github.com/AkshayaJeyaprakash/Project_ATOM_RAS598/commit/e2dc32dc3836c7e0b908bb959c3d39244859ab8f), [9bdfa87](https://github.com/AkshayaJeyaprakash/Project_ATOM_RAS598/commit/9bdfa870419ac7ff7399ad65721f147e0b880a19), [09e8bfa](https://github.com/AkshayaJeyaprakash/Project_ATOM_RAS598/commit/09e8bfad76eb1dde7a20b01695b0a4985b5f86d1) | depth_reader.py <br> server.py <br> streamlit.py |
+
+---
