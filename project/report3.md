@@ -346,3 +346,55 @@ Nav2 uses the MPPI (Model Predictive Path Integral) controller to plan and follo
 Goal publisher distinguishes between two navigation modes: exploration goals (where a spotted object should cancel navigation and trigger centering) and approach goals (where a spotted object should only trigger a depth check, not cancel navigation). This prevents the robot from cancelling its own approach because it sees the very object it is heading toward.
 
 ---
+
+## 10. Safety Monitor — Guardian Node
+
+The `safety_monitor` runs independently from all other nodes. It cannot be blocked by the coordinator going into a slow state or the inference server being unresponsive — it has its own timer callbacks and runs at a fixed rate regardless of what else is happening.
+
+Its primary function is emergency stop. When "STOP" is received on `/atom/emergency_stop` (publishable from the Streamlit UI or the command line), it immediately publishes zero velocity 10 times in rapid succession to both `cmd_vel_unstamped` and `cmd_vel` (the latter bypasses Nav2 entirely), then continues publishing zero velocity at 10Hz until "RESUME" is received.
+
+**Kinetic energy analysis:** At maximum navigation speed v_max = 0.5 m/s, the robot's kinetic energy is:
+
+$$
+KE_{\text{max}} = \frac{1}{2}mv_{\text{max}}^2 = \frac{1}{2}(3.3)(0.5)^2 = 0.41\;\text{J}
+$$
+
+At the approach speed v = 0.15 m/s used during the final drive to the object:
+
+$$
+KE_{\text{approach}} = \frac{1}{2}(3.3)(0.15)^2 = 0.037\;\text{J}
+$$
+
+Both values are far below ISO/TS 15066 human-robot contact thresholds. The worst-case overrun distance after an emergency stop command — the distance the robot travels before it receives the zero-velocity command — is:
+
+$$
+d_{\text{overrun}} = v_{\text{max}} \cdot t_{\text{period}} = 0.5 \times 0.1 = 0.05\;\text{m} = 5\;\text{cm}
+$$
+
+This 5cm overrun is negligible given the 0.45m stop distance maintained during approach.
+
+**Battery autodock:** Every 30 seconds the safety monitor checks battery percentage from `/battery_state`. When it drops below 20%, it waits for any active task to complete, then navigates to the pre-dock position and calls the `/dock` action server. The TurtleBot4 battery capacity is approximately 26 Wh, so at 20% the remaining energy is 5.2 Wh. At an average navigation power draw of ~20W:
+
+$$
+t_{\text{remaining}} = \frac{5.2\;\text{Wh}}{20\;\text{W}} \times 3600\;\text{s/h} \approx 936\;\text{s} \approx 15\;\text{min}
+$$
+
+This 15-minute buffer ensures the robot can always complete an ongoing task and navigate to the dock safely before the battery is exhausted.
+
+The safety monitor also manages manual dock and undock commands from the Streamlit UI, and broadcasts emergency status to all other nodes via `/atom/task_status` so the coordinator freezes and goal publisher cancels any active Nav2 goal.
+
+---
+
+## 11. Celebration Node — On-Robot Feedback
+
+The `celebration_node` runs directly on the TurtleBot4 robot rather than the VM. This is necessary because the robot's audio and LED systems subscribe to topics locally — publishing them from the VM goes through the Create3 republisher and causes timing issues. Running on the robot eliminates the round-trip.
+
+When `GOAL COMPLETED` appears on `/atom/task_status`, the node simultaneously triggers:
+
+**Audio:** Six ascending notes published to `/cmd_audio` as an `AudioNoteVector` message. The notes follow the C major triad across two octaves: C4 (262Hz), E4 (330Hz), G4 (392Hz), C5 (523Hz), E5 (659Hz), G5 (784Hz), with increasing duration from 300ms to 600ms. The frequency ratios — 1 : 5/4 : 3/2 — are the just intonation intervals of a major triad, perceptually associated with resolution and success. Total duration: 2.3 seconds.
+
+**LEDs:** A green spin animation via the `/led_animation` action server (animation_type=2, max_runtime=3s). All 6 LEDs are set to full green (R=0, G=255, B=0). The action server automatically restores the default LED state after 3 seconds — no manual reset required. Sound and lights run simultaneously.
+
+A `_celebrating` flag prevents re-triggering if duplicate `GOAL COMPLETED` messages arrive. The flag resets 4 seconds after triggering, making the node ready for the next task.
+
+---
