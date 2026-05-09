@@ -11,9 +11,100 @@ nav_order: 3
 
 ---
 
-{: .warning }
-> ⚠️ **This milestone is not yet complete.**  
-> The content in this page is a placeholder and will be updated as the project progresses.
+## 1. Abstract
+
+ATOM (Autonomous Task & Object Management) is a semantic robot object-retrieval system built on a TurtleBot4 Lite. A user types or speaks a natural language command such as *"find the red bottle"* through a web interface. The system parses the command using a Large Language Model, recalls where similar objects were seen before from a persistent spatial memory, navigates to those locations using Nav2, visually detects and validates the object using a three-model ensemble of YOLO, CLIP, and LLaVA, drives to within arm's reach using closed-loop depth control, and celebrates success with an ascending audio sweep and LED animation. The entire system requires no environment-specific retraining — it works zero-shot in any mapped indoor space.
+
+This report describes how the system works end-to-end, the mathematics behind each custom module, and an evaluation of its performance and ethical implications.
+
+---
+
+## 2. System Architecture & Pipeline Flow
+
+ATOM is a distributed system spanning three physical compute nodes: the TurtleBot4 Lite robot, an Ubuntu VM running the ROS2 middleware and Nav2, and a host laptop running the AI inference server. The diagram below shows both the architecture (which node handles what) and the data flow between them.
+
+```mermaid
+flowchart TD
+    USER(["👤 User Command\n'find the red bottle'"])
+    UI["🖥️ Streamlit UI\nstreamlit_app.py\n/atom/resolved_target"]
+
+    subgraph VM ["Ubuntu VM — ROS2 Jazzy"]
+        direction TB
+        EC["🧠 exploration_coordinator.py\nState Machine · LLM Parser\nMemory Nav · Centering · Approach"]
+        OD["👁️ object_detector.py\nYOLO Inference · Target Matching\nOpenCV Display"]
+        GP["🗺️ goal_publisher.py\nNav2 Action Client\nCostmap Manager"]
+        MM["💾 memory_mapper.py\nJSON Spatial Memory\n~/maps/memory.json"]
+        SM["🛡️ safety_monitor.py\nEmergency Stop\nBattery Autodock"]
+        NAV2["⚙️ Nav2 Stack\nAMCL · MPPI · BT · Costmaps"]
+    end
+
+    subgraph HOST ["Host Laptop — Flask :5000"]
+        direction TB
+        YOLO["YOLOv8n\n/detect"]
+        CLIP["CLIP ViT-B/32\n/clip_score"]
+        LLAVA["LLaVA via Ollama\n/llava_parse_task\n/llava_reason"]
+    end
+
+    subgraph ROBOT ["TurtleBot4 Lite — robot_03"]
+        direction TB
+        CAM["OAK-D RGB\n250×250 30Hz"]
+        DEPTH["OAK-D Stereo\n640×400 14Hz"]
+        LIDAR["RPLiDAR A1\n720pts 7.7Hz"]
+        MOTORS["cmd_vel\nDiffDrive"]
+        CELEB["🎉 celebration_node.py\nAudio + LED"]
+    end
+
+    USER --> UI
+    UI -->|"/atom/resolved_target"| EC
+
+    EC -->|"POST /llava_parse_task\ntask + memory_list"| LLAVA
+    LLAVA -->|"yolo_class, memory_object\ndescription"| EC
+
+    EC -->|"Load memory.json\nSort by confidence"| MM
+    EC -->|"/atom/resolved_class\nTRANSIENT_LOCAL"| OD
+    EC -->|"/exploration_goal\n{x, y, final}"| GP
+
+    GP -->|"NavigateToPose\naction goal"| NAV2
+    NAV2 -->|"cmd_vel"| MOTORS
+    NAV2 -->|"/atom/nav_status\nGOAL_REACHED"| EC
+
+    CAM -->|"/oakd/rgb"| OD
+    OD -->|"POST /detect\nbase64 JPEG"| YOLO
+    YOLO -->|"detections[]"| OD
+    OD -->|"/atom/object_spotted\n{class, conf, bbox}"| EC
+    OD -->|"/atom/detections"| MM
+
+    EC -->|"POST /clip_score\nimage + text"| CLIP
+    EC -->|"POST /llava_reason\nimage + target"| LLAVA
+    CLIP -->|"cosine score"| EC
+    LLAVA -->|"present: true/false"| EC
+
+    EC -->|"/atom/depth_bbox\n{bbox, class}"| DEPTH
+    DEPTH -->|"/atom/get_depth service\ndistance_m"| EC
+
+    EC -->|"/cmd_vel_unstamped\nTwist"| MOTORS
+    EC -->|"/atom/task_status\nGOAL COMPLETED"| CELEB
+    CELEB -->|"/cmd_audio\nAudioNoteVector"| ROBOT
+    CELEB -->|"/led_animation\nLedAnimation"| ROBOT
+
+    SM -->|"10Hz zero vel\nemergency override"| MOTORS
+    SM -->|"/atom/emergency_stop"| EC
+    SM -->|"/atom/emergency_stop"| GP
+
+    LIDAR -->|"/scan"| NAV2
+
+    style EC fill:#1e3a5f,color:#fff
+    style OD fill:#1e3a5f,color:#fff
+    style GP fill:#1e3a5f,color:#fff
+    style MM fill:#1e3a5f,color:#fff
+    style SM fill:#7b1e1e,color:#fff
+    style CELEB fill:#1e5f3a,color:#fff
+    style YOLO fill:#5f3a1e,color:#fff
+    style CLIP fill:#5f3a1e,color:#fff
+    style LLAVA fill:#5f3a1e,color:#fff
+```
+
+When the user issues a command, it flows to the `exploration_coordinator` — the brain of the system. The coordinator parses the command using LLaVA, checks its spatial memory for known object locations, and begins navigating. While the robot moves, `object_detector` continuously runs YOLO on camera frames looking for the target. When it spots something, the coordinator stops the robot, centers it visually, checks depth, validates the detection with CLIP and LLaVA, and drives to the object. On success, the `celebration_node` on the robot plays a sound and flashes the LEDs. The `safety_monitor` runs in parallel at all times, watching for emergency stops and low battery. The `memory_mapper` silently records everything the robot sees into a JSON file, which is consulted on future commands.
 
 ---
 
