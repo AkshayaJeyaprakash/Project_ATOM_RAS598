@@ -252,3 +252,81 @@ The negative sign is because positive pixel error (object to the right) requires
 The controller is considered converged when the error is within ±20 pixels for 3 consecutive YOLO frames — requiring about 1.5 seconds of stable centring before proceeding. This 3-frame confirmation prevents transient single-frame false centring from triggering the approach phase prematurely. If the object disappears from frame for more than 4 seconds, or centering takes longer than 15 seconds total, the robot gives up and returns to scanning.
 
 ---
+
+## 6. Depth Measurement and Approach Logic
+
+Once centred, the coordinator calls the `/atom/get_depth` service running on the robot. The `depth_reader.py` script reads the OAK-D stereo depth image at the bounding box centre and returns the distance in metres. The OAK-D computes depth via stereo disparity — the same 3D point appears at slightly different horizontal positions in the left and right camera images, and the depth Z is recovered from the disparity d, focal length f, and baseline b:
+
+$$
+Z = \frac{f \cdot b}{d}
+$$
+
+At 1.0m, the OAK-D stereo camera operates well within its reliable range. The disparity between left and right images is large (~15 pixels), so a 1-pixel quantisation error in disparity translates to only ~1-2cm of depth error. The readings cluster tightly around the ground truth with a standard deviation of just 1.2cm and a total spread of 11cm — more than adequate for ATOM's 0.45m stop threshold.
+
+At 2.5m, the geometry works against the sensor. The same baseline produces a disparity of only ~4-5 pixels. A single pixel of disparity error now translates to 15-20cm of depth error — the distribution fans out dramatically with a standard deviation of 28.6cm and a total spread over 1.1m. This is exactly why ATOM switches to open-loop time-based driving beyond 1.5m: the stereo readings become too noisy to trust for closed-loop control.
+
+![Alt text](/assets/images/depth.png)
+
+This unreliability directly shapes the approach strategy:
+
+$$
+\text{action}(Z) =
+\begin{cases}
+\text{DONE} & Z \leq 0.45\;\text{m} \\[4pt]
+\text{validate} \rightarrow \text{APPROACHING} & 0.45 < Z \leq 1.5\;\text{m} \\[4pt]
+\text{validate} \rightarrow \text{DRIVING\_1M} & 1.5 < Z \leq 2.5\;\text{m} \\[4pt]
+\text{DRIVING\_1M (skip validate)} & Z > 2.5\;\text{m}
+\end{cases}
+$$
+
+If the robot is already within 0.45m, it declares success immediately — this stop distance is chosen so that the nearest point of the robot's body (footprint radius 0.189m) is approximately 0.26m from the object, avoiding physical contact. Between 0.45m and 1.5m (the stereo reliable zone), it runs CLIP+LLaVA validation and if confirmed, drives straight at 0.15 m/s with depth checks every 0.5s. Beyond 1.5m, it drives a fixed open-loop step using time-based control:
+
+$$
+t_{\text{drive}} = \frac{d_{\text{step}}}{v} = \frac{1.0\;\text{m}}{0.15\;\text{m/s}} = 6.\overline{6}\;\text{s}
+$$
+
+This loop of drive-centre-depth repeats until the robot enters the reliable depth zone. Beyond 2.5m, validation is skipped because the object occupies too few pixels for CLIP or LLaVA to reliably identify it. During all drive phases, the coordinator monitors bounding box drift at 10Hz — if the object centre moves more than 50 pixels from the frame centre, the drive is interrupted and re-centering is triggered.
+
+---
+
+## 7. Three-Model Semantic Validation
+
+Before committing to an approach, the system validates that the detected object is genuinely the right one. This is necessary because YOLO is purely class-based — it detects "bottle" regardless of color, and the user may have asked for "the red bottle" specifically. YOLO alone cannot confirm this. The validation uses three models voting, requiring 2 out of 3 to agree:
+
+**Vote 1 — YOLO:** Already confirmed by definition (YOLO detected the class). Always 1.
+
+**Vote 2 — CLIP:** The current camera frame and the text description (e.g., "red bottle") are both converted to 512-dimensional vectors in a shared embedding space, and their cosine similarity is computed. CLIP was trained on 400 million image-text pairs to put semantically matching images and texts close together in this space. A similarity score above 0.24 constitutes a vote:
+
+$$
+s = \mathbf{v}_{\text{image}} \cdot \mathbf{v}_{\text{text}}, \qquad V_2 = \mathbb{1}[s \geq 0.24]
+$$
+
+**Vote 3 — LLaVA:** The frame and the description are sent to the multimodal LLM with the prompt: *"Is there a red bottle visible? PRESENT: yes/no."* LLaVA can reason about occlusion, foreground/background, and object identity in ways that CLIP's pure similarity score cannot. It costs 3–15 seconds per call but only runs when the robot is stationary at a detection — never during navigation.
+
+The total vote score is V = V₁ + V₂ + V₃. Since YOLO always contributes V₁ = 1 at this stage, the decision simplifies: the object is confirmed if **either CLIP or LLaVA** agrees. If both disagree, the detection is discarded and the robot continues scanning. This design means a false positive requires YOLO, CLIP, and LLaVA to all simultaneously fail — a significantly lower probability than any single model failing alone.
+
+The key subtlety: validation uses the LLM-generated **description** ("red bottle"), not the raw YOLO class ("bottle"). This means the color and attribute information the user specified is actually used in the visual check — something impossible with YOLO alone.
+
+---
+
+## 8. Memory Mapper — Building Spatial Intelligence
+
+The `memory_mapper` runs quietly in the background during both the mapping phase (teleoperation) and the navigation phase. It subscribes to `/atom/detections` — the full list of all YOLO detections from every frame — and to `/amcl_pose` or `/pose` for the robot's current position.
+
+Every detection is stored as a record containing the object class, the robot's map-frame pose (x, y, ψ), the YOLO confidence score, and a Unix timestamp. The spatial memory is formally a dictionary mapping each class to a sorted list:
+
+$$
+\mathcal{M}: C_{\text{YOLO}} \rightarrow \text{List}\bigl[\{x,\;y,\;\psi,\;\text{conf},\;t\}\bigr]
+$$
+
+Within each class, entries are kept sorted in descending confidence order after every insertion:
+
+$$
+\mathcal{M}[c] = \text{sort}_{\downarrow \text{conf}}\bigl(\mathcal{M}[c]\bigr)
+$$
+
+This sort order is what makes memory-guided navigation effective — the robot always navigates first to the location where it had the clearest, most confident view of the object. The file is saved to disk every 5 seconds using a periodic timer, making the memory persistent across power cycles and sessions. Over a full mapping session of a home environment, the memory accumulates thousands of entries — in our experiments, 1082 bottle poses, 53 cup poses, and hundreds of entries for other classes — giving the coordinator a rich spatial prior that dramatically reduces search time compared to blind exploration.
+
+The memory mapper also runs during autonomous navigation, not just during teleop. This means objects encountered during a search task are automatically recorded for future searches — the robot's spatial knowledge grows with use.
+
+---
