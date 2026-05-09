@@ -404,6 +404,24 @@ A `_celebrating` flag prevents re-triggering if duplicate `GOAL COMPLETED` messa
 
 ## 13. Ethical Impact Statement 
 
+### 13.1 Privacy
+
+ATOM is designed with a privacy-first architecture. Every component of the AI pipeline — YOLOv8n, CLIP ViT-B/32, and LLaVA — runs **entirely on local hardware**. The inference server runs on the host laptop connected to the private lab WiFi network; Ollama runs LLaVA models locally without sending any data to external APIs; the ROS2 network is isolated to the local subnet via the Discovery Server at `192.168.1.183`. No camera frame, no object detection result, no map data, and no user command ever leaves the local network. This is a meaningful privacy guarantee — in contrast to cloud-based systems where every image is transmitted to and potentially stored by a third-party server.
+
+The occupancy map (`home_map_hd.pgm`) and spatial memory (`memory.json`) are stored only on the VM's local filesystem. The map represents the physical layout of the environment; the memory records where objects were seen. Neither is transmitted anywhere. This also means the system works entirely offline — internet connectivity is not required for any function.
+
+The one current limitation: the spatial memory records all YOLO detections including the "person" class. Over time this builds a record of where people were present in the space, which is sensitive in domestic settings. Future versions should explicitly exclude person-class detections from `memory_mapper.py`. Under the utilitarian framework, the local-only design maximises benefit while eliminating third-party data exposure — a stronger privacy guarantee than most commercial robot systems.
+
+### 13.2 Safety
+
+At approach speed (0.15 m/s), the robot's kinetic energy is 0.037 J — far below any human injury threshold under ISO/TS 15066. The emergency stop worst-case overrun at full navigation speed is 5cm. The battery autodock at 20% leaves 15 minutes of margin. The no-reverse constraint in Nav2 prevents the robot from backing into people or furniture. Under the deontological framework, the system has an absolute obligation to not harm users — the multi-layer stop system fulfils this duty regardless of task state.
+
+### 13.3 Bias
+
+Three systematic hardware biases exist. First, the OAK-D stereo depth is unreliable beyond 1.5m, causing the robot to use open-loop time-based drives in larger spaces — these may overshoot or undershoot depending on floor surface friction. Second, the RPLiDAR cannot detect glass — transparent walls and doors are invisible to Nav2 and the collision monitor, creating a safety gap in modern glass-walled environments. Third, YOLO's COCO-80 vocabulary excludes most fine-grained domestic objects ("mug," "thermos," "kettle") — these require LLM remapping that introduces uncertainty not present for canonical classes. Under the justice framework, users in glass-architecture environments receive systematically degraded safety compared to users in traditional walled spaces — a disparity requiring hardware-level mitigation before broad deployment.
+
+---
+
 
 ## 14. Custom Module Code Links
 
