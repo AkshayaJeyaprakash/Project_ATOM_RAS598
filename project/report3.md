@@ -221,47 +221,34 @@ The 1m spacing is chosen because the RPLiDAR covers ~3m range and the robot rota
 
 ---
 
-## 4. Ethical Impact Statement
+## 4. Object Detector — Eyes of the Robot
 
-Our autonomous TurtleBot 4 system integrates natural language understanding, computer vision-based object detection, and semantic mapping to explore environments and identify user-specified objects. This combination introduces important ethical considerations in privacy, safety, and bias that must be addressed both in current implementation and future iterations.
+The `object_detector` node runs continuously, processing camera frames at 2Hz (every 0.5 seconds). It receives the resolved YOLO class name from the coordinator via the `/atom/resolved_class` topic — a TRANSIENT_LOCAL latched topic, meaning the message is cached and delivered even if `object_detector` starts after the coordinator has already published it.
 
-From a privacy standpoint, the robot uses onboard RGB and depth sensing for object detection and mapping. These sensors may capture incidental visual data such as people, personal belongings, or sensitive environments during exploration. Although our current system does not explicitly store or transmit personally identifiable information, future versions that log semantic maps or annotated images could unintentionally retain sensitive data. To mitigate this, we should implement data minimization strategies, such as discarding raw images after inference, applying real-time anonymization techniques like face or text blurring, and restricting long-term storage of environment data.
+For each frame, it resizes the image to 320×240, encodes it as a JPEG at 60% quality, and sends it to the inference server's `/detect` endpoint. The server runs YOLOv8n (the nano variant — fastest inference) and returns all detections with their class name, confidence score, and bounding box. The detector filters these to only those above 0.30 confidence threshold, then checks if any match the current resolved target.
 
-In terms of safety, the robot operates using a differential drive model and autonomous exploration strategies in potentially dynamic environments. Motion is governed by wheel velocities, meaning unsafe velocity commands or perception failures could result in collisions. This is especially relevant when combining exploration with object-seeking behavior, which may bias the robot toward goal completion over obstacle avoidance. Safety can be improved through strict velocity limits, reliable obstacle detection using depth sensing, and fail-safe mechanisms such as emergency stops. Future iterations should include redundancy across sensing modalities and more robust runtime validation of navigation decisions.
-
-Bias in the system primarily stems from hardware and perception limitations. Vision-based object detection models such as YOLO may exhibit uneven performance depending on lighting, object appearance, or dataset bias. Additionally, depth sensors and LiDAR struggle with reflective or transparent surfaces such as glass, leading to incomplete environmental understanding. These limitations can cause the robot to perform inconsistently across environments, creating unequal reliability. Sensor fusion, combining vision, depth, and potentially LiDAR, can help reduce these biases.
-
-Applying the Utilitarian Test, the system provides clear benefits by enabling intuitive human-robot interaction and autonomous exploration, but these benefits must be balanced against risks such as privacy exposure and physical harm. The Justice Test highlights the need for consistent performance across environments, ensuring that failures do not disproportionately affect certain users or settings. The Virtue Test emphasizes responsible engineering practices, requiring us to prioritize safety, transparency, and continuous system improvement.
-
-Overall, ethical deployment of this system requires anticipating these challenges and proactively designing safeguards that scale with system capability.
+When a match is found, it publishes to `/atom/object_spotted` with the class, confidence, and bounding box — but with a 0.5s cooldown to prevent flooding. It also publishes all detections (regardless of target) to `/atom/detections`, which `memory_mapper` uses to continuously update the spatial memory even during navigation. The OpenCV window shows a live view: non-target detections in green, the target in red with "TARGET:" prefix, and a status line showing either "Looking for: bottle" or "Waiting for next command..." depending on whether a task is active.
 
 ---
 
-## 5. Custom Module Code Links
+## 5. Visual Centering — Pointing the Camera at the Object
 
-Camera Processor ([camera_processor.py](https://github.com/AkshayaJeyaprakash/Project_ATOM_RAS598/blob/Milestone_3/atom_ws/src/atom_bringup/atom_bringup/camera_processor.py))
+When the object is spotted, the coordinator stops the robot and begins centering. The goal is to rotate the robot until the detected object's bounding box is horizontally centred in the camera frame. This ensures the robot is facing directly toward the object before it approaches.
 
-Object Detector ([object_detector.py](https://github.com/AkshayaJeyaprakash/Project_ATOM_RAS598/blob/Milestone_3/atom_ws/src/atom_bringup/atom_bringup/object_detector.py))
+The camera frame is 320 pixels wide, so the centre is at pixel 160. The detector returns the bounding box and the horizontal centre of that box is computed as the midpoint of the left and right edges. The signed pixel error measures how far that centre is from pixel 160 — positive means the object is to the right, negative means it is to the left.
 
-Exploration Coordinator ([exploration_coordinator.py](https://github.com/AkshayaJeyaprakash/Project_ATOM_RAS598/blob/Milestone_3/atom_ws/src/atom_bringup/atom_bringup/exploration_coordinator.py))
+The rotation command is computed by a **proportional controller** — the angular velocity is proportional to the pixel error, with gain K_p = 0.003 rad/s per pixel:
 
-Goal Publisher ([goal_publisher.py](https://github.com/AkshayaJeyaprakash/Project_ATOM_RAS598/blob/Milestone_3/atom_ws/src/atom_bringup/atom_bringup/goal_publisher.py))
+$$
+\omega = -K_p \cdot e
+$$
 
-Memory Mapper ([memory_mapper.py](https://github.com/AkshayaJeyaprakash/Project_ATOM_RAS598/blob/Milestone_3/atom_ws/src/atom_bringup/atom_bringup/memory_mapper.py))
+$$
+\omega_{\text{cmd}} = \text{clip}(\omega,\;{-0.3},\;{+0.3})\;\text{rad/s}
+$$
 
-Safety Monitor ([safety_monitor.py](https://github.com/AkshayaJeyaprakash/Project_ATOM_RAS598/blob/Milestone_3/atom_ws/src/atom_bringup/atom_bringup/safety_monitor.py))
+The negative sign is because positive pixel error (object to the right) requires clockwise rotation (negative angular velocity in ROS convention). The speed is capped at 0.3 rad/s to prevent overshoot, and a minimum of 0.05 rad/s ensures the robot does not stall due to motor static friction when the error is very small. At maximum error of 160px (object at frame edge), the commanded speed is 0.48 rad/s, clipped to 0.3 rad/s. At threshold (20px error), the speed is 0.06 rad/s — well above the minimum.
 
-Streamlit ([streamlit.py](https://github.com/AkshayaJeyaprakash/Project_ATOM_RAS598/blob/Milestone_3/atom_ws/src/atom_bringup/atom_bringup/streamlit.py))
+The controller is considered converged when the error is within ±20 pixels for 3 consecutive YOLO frames — requiring about 1.5 seconds of stable centring before proceeding. This 3-frame confirmation prevents transient single-frame false centring from triggering the approach phase prematurely. If the object disappears from frame for more than 4 seconds, or centering takes longer than 15 seconds total, the robot gives up and returns to scanning.
 
---- 
-
-## 6. Individual Contribution & Audit Appendix
-
-TODO: Fill out the team members' contributions in a table
-
-| Team Member | Primary Technical Role | Key Commits | Specific File(s) / Components |
-|-------------|----------------------|-------------|-------------------------------|
-| Akshaya J |  | [](), [](), [](), []() |  |
-| Nivas Piduru |  | [](), [](), [](), []() |  |
-| Moss Barnett |  | [](), [](), [](), []() |  |
 ---
