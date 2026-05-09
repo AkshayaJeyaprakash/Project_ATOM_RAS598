@@ -1,307 +1,725 @@
-import rclpy
-from rclpy.node import Node
-from std_msgs.msg import String
-from geometry_msgs.msg import Twist
-from nav_msgs.msg import OccupancyGrid, Odometry
+import base64
 import json
 import math
+import os
 import time
-from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
 
-from .color_mapper import get_color_range
-from .scan_point_generator import generate_scan_points, get_closest_scan_point
+import cv2
+import numpy as np
+import requests
+import rclpy
+from atom_bringup.config import (
+    CLIP_THRESHOLD, CENTER_THRESHOLD, CONFIRM_COUNT, DEPTH_CHECK_INTERVAL, DRIVE_1M_DIST,
+    DRIVE_SPEED, FRAME_CENTER_X, KP, MAX_ROT_SPEED, MEMORY_FILE, MIN_ROT_SPEED, SCAN_PAUSE_S,
+    SCAN_SPEED, SCAN_SPACING_M, SCAN_STEP_DEG, SCAN_TOTAL_DEG, SERVER_URL, STEREO_RELIABLE_M,
+    STOP_DISTANCE_M, VOTES_REQUIRED, WALL_CLEARANCE_M, DRIFT_THRESHOLD,
+)
+from cv_bridge import CvBridge
+from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
+from nav_msgs.msg import OccupancyGrid, Odometry
+from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
+from sensor_msgs.msg import Image
+from std_msgs.msg import String
+from std_srvs.srv import Trigger
+
+IDLE = "IDLE"
+SCANNING = "SCANNING"
+MOVING_TO_SCAN = "MOVING_TO_SCAN"
+MEMORY_NAV = "MEMORY_NAV"
+CENTERING = "CENTERING"
+DEPTH_CHECK = "DEPTH_CHECK"
+DRIVING_1M = "DRIVING_1M"
+APPROACHING = "APPROACHING"
+DONE = "DONE"
+EMERGENCY_STOP = "EMERGENCY_STOP"
 
 
 class ExplorationCoordinator(Node):
     def __init__(self):
-        super().__init__('exploration_coordinator')
+        super().__init__("exploration_coordinator")
+        self._state = IDLE
+        self._resolved_target = None
+        self._robot_x = 0.0
+        self._robot_y = 0.0
+        self._robot_yaw = 0.0
+        self._map = None
+        self._scan_points = []
+        self._current_scan_idx = 0
+        self._rotation_total = 0.0
+        self._rotation_active = False
+        self._rotation_pausing = False
+        self._rotation_pause_end = 0.0
+        self._rotating = False
+        self._rotate_end_time = 0.0
+        self._nav_status = None
+        self._last_spotted_data = None
+        self._center_confirm_count = 0
+        self._last_detection_time = 0.0
+        self._centering_start_time = 0.0
+        self._centering_return_state = DEPTH_CHECK
+        self._depth_future = None
+        self._depth_check_start = 0.0
+        self._latest_distance = None
+        self._memory = {}
+        self._memory_poses = []
+        self._memory_pose_idx = 0
+        self._memory_nav_status = None
+        self._latest_frame_bgr = None
+        self._bridge = CvBridge()
+        self._server_url = SERVER_URL
+        self._user_description = None
+        self._drive_start_time = 0.0
+        self._drive_duration = DRIVE_1M_DIST / DRIVE_SPEED
+        self._last_depth_check_time = 0.0
+        self._depth_client = self.create_client(Trigger, "/atom/get_depth")
 
-        self.state = 'IDLE'
-        self.current_task = None
-        self.color_range = None
-        self.scan_points = []
-        self.visited_scan_points = []
-        self.current_scan_point = None
-        self.rotation_angle = 0.0
-        self.rotation_step = 15.0
-        self.rotation_pause = 2.5
-        self.last_rotation_time = 0.0
-        self.is_paused = False
-        self.scanning_active = False
-        self.approach_direction = None
-        self.approach_steps = 0
-        self.max_approach_steps = 3
-        self.approach_origin = None
-        self.robot_x = 0.0
-        self.robot_y = 0.0
-
-        self.declare_parameter('server_url', 'http://192.168.1.154:5000')
-        self.server_url = self.get_parameter('server_url').value
-
-        self.create_subscription(String, '/task_command', self.task_callback, 10)
-        self.create_subscription(String, '/atom/semantic_map', self.map_callback, 10)
-        self.create_subscription(String, '/atom/nav_status', self.nav_status_callback, 10)
-        self.create_subscription(String, '/atom/color_detection', self.color_detection_callback, 10)
-        self.create_subscription(Odometry, '/atom/odom', self.odom_callback, 10)
-
-        map_qos = QoSProfile(
-            depth=1,
+        qos_transient = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.TRANSIENT_LOCAL,
-            reliability=ReliabilityPolicy.RELIABLE
+            depth=1,
         )
-        self.create_subscription(OccupancyGrid, '/map', self.occupancy_map_callback, map_qos)
+        self.create_subscription(String, "/atom/resolved_target", self.resolved_target_callback, 10)
+        self.create_subscription(Image, "/atom/camera/rgb", self.camera_callback, 10)
+        self.create_subscription(String, "/atom/emergency_stop", self.emergency_stop_callback, 10)
+        self.create_subscription(String, "/atom/object_spotted", self.object_spotted_callback, 10)
+        self.create_subscription(String, "/atom/nav_status", self.nav_status_callback, 10)
+        self.create_subscription(OccupancyGrid, "/map", self.map_callback, qos_transient)
+        self.create_subscription(PoseWithCovarianceStamped, "/amcl_pose", self.amcl_pose_callback, qos_transient)
+        self.create_subscription(Odometry, "/odom", self.odom_callback, 10)
 
-        self.goal_pub = self.create_publisher(String, '/exploration_goal', 10)
-        self.status_pub = self.create_publisher(String, '/atom/task_status', 10)
-        self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel_unstamped', 10)
-        self.scan_trigger_pub = self.create_publisher(String, '/atom/scan_trigger', 10)
+        self.status_pub = self.create_publisher(String, "/atom/task_status", 10)
+        self.cmd_vel_pub = self.create_publisher(Twist, "/cmd_vel_unstamped", 10)
+        self.depth_bbox_pub = self.create_publisher(String, "/atom/depth_bbox", 10)
+        self.goal_pub = self.create_publisher(String, "/exploration_goal", 10)
 
-        self.create_timer(0.1, self.rotation_timer)
-        self.create_timer(60.0, self.exploration_fallback_timer)
-        self.create_timer(5.0, self.try_generate_scan_points)
-
-        self.get_logger().info('Exploration Coordinator started — state: IDLE')
-
-    def task_callback(self, msg):
-        if self.state != 'IDLE':
-            self.get_logger().warn(f"Already on task '{self.current_task}' — ignoring")
-            return
-
-        self.current_task = msg.data
-        self.color_range = get_color_range(self.current_task)
-        self.visited_scan_points = []
-        self.rotation_angle = 0.0
-        self.scanning_active = False
-
-        self.get_logger().info(
-            f"Task: '{self.current_task}' | "
-            f"Color filter: {'enabled' if self.color_range else 'disabled'}"
+        qos_latched = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            depth=1,
         )
-        self.set_state('MOVING_TO_SCAN')
-        self.go_to_next_scan_point()
+        self.resolved_class_pub = self.create_publisher(String, "/atom/resolved_class", qos_latched)
 
-    def occupancy_map_callback(self, msg):
-        if not self.scan_points:
-            points = generate_scan_points(msg, num_points=4)
-            if points:
-                self.scan_points = points
-                self.get_logger().info(f"Scan points generated: {self.scan_points}")
+        self.create_timer(0.1, self._state_machine_tick)
+        self.get_logger().info("ExplorationCoordinator started | state: IDLE")
 
-    def odom_callback(self, msg):
-        self.robot_x = msg.pose.pose.position.x
-        self.robot_y = msg.pose.pose.position.y
+    def resolved_target_callback(self, msg: String):
+        raw_task = msg.data.strip()
+        self.get_logger().info(f"Task received: {raw_task}")
+        self._full_reset()
+        self._memory = self._load_memory()
+        memory_list = ", ".join(sorted(self._memory.keys())) if self._memory else "memory is empty"
+        yolo_class = raw_task.lower().strip()
+        memory_object = "none"
+        description = raw_task.lower().strip()
 
-    def map_callback(self, msg):
-        if self.state not in ['SCANNING', 'APPROACHING', 'MOVING_TO_SCAN']:
-            return
-        if not self.current_task:
-            return
-
-        object_map = json.loads(msg.data)
-        result = self.check_map_for_task(object_map, self.current_task)
-        if result and result['x'] != 0.0 and result['y'] != 0.0:
-            self.get_logger().info(
-                f"Target found in map: {result['id']} at ({result['x']:.2f}, {result['y']:.2f})"
+        try:
+            r = requests.post(
+                f"{self._server_url}/llava_parse_task",
+                json={"task": raw_task, "memory_list": memory_list},
+                timeout=30,
             )
-            self.stop_rotation()
-            self.scanning_active = False
-            self.publish_goal(result['x'], result['y'])
-            self.set_state('VERIFYING')
+            result = r.json()
+            if result.get("yolo_class", "none") != "none":
+                yolo_class = result["yolo_class"]
+                memory_object = result.get("memory_object", "none")
+                description = result.get("description", yolo_class)
+                self.get_logger().info(
+                    f'LLM parsed: yolo_class="{yolo_class}" | memory_object="{memory_object}" | description="{description}" | reason: {result.get("reasoning", "")}'
+                )
+            else:
+                self.get_logger().warn(f'LLM returned none — falling back to raw task: "{raw_task}"')
+        except Exception as e:
+            self.get_logger().warn(f"LLM parse failed: {e} — using raw task as target")
 
-    def color_detection_callback(self, msg):
-        if self.state != 'SCANNING' or not self.is_paused:
+        self._resolved_target = yolo_class
+        self._user_description = description
+        self.get_logger().info(f'Resolved: YOLO="{self._resolved_target}" | description="{self._user_description}"')
+
+        clear_msg = String()
+        clear_msg.data = ""
+        self.resolved_class_pub.publish(clear_msg)
+
+        resolved_msg = String()
+        resolved_msg.data = yolo_class
+        self.resolved_class_pub.publish(resolved_msg)
+
+        poses_to_use = None
+        poses_label = None
+        if memory_object != "none" and memory_object in self._memory:
+            poses_to_use = list(self._memory[memory_object])
+            poses_label = memory_object
+        elif yolo_class in self._memory and len(self._memory[yolo_class]) > 0:
+            poses_to_use = list(self._memory[yolo_class])
+            poses_label = yolo_class
+
+        if poses_to_use:
+            self._memory_poses = poses_to_use
+            self._memory_pose_idx = 0
+            self.get_logger().info(
+                f'Memory hit: {len(self._memory_poses)} poses for "{poses_label}" | trying highest confidence first'
+            )
+            self._start_memory_nav()
+        else:
+            self.get_logger().info(f'No memory for "{yolo_class}" — starting exploration')
+            self._start_scanning()
+
+    def camera_callback(self, msg):
+        try:
+            cv_image = self._bridge.imgmsg_to_cv2(msg, desired_encoding="rgb8")
+            self._latest_frame_bgr = cv2.cvtColor(cv_image, cv2.COLOR_RGB2BGR)
+        except Exception:
+            pass
+
+    def emergency_stop_callback(self, msg: String):
+        command = msg.data.strip().strip("'").strip('"').upper()
+        if command == "EMERGENCY_STOP":
+            self.get_logger().error("EMERGENCY STOP received — halting all motion")
+            self._stop_robot()
+            self._stop_rotation()
+            self._state = EMERGENCY_STOP
+            self._publish_status("EMERGENCY_STOP")
+        elif command == "EMERGENCY_RESUME":
+            self.get_logger().info("EMERGENCY RESUME received — going to IDLE")
+            self._full_reset()
+            self._publish_status("IDLE")
+
+    def object_spotted_callback(self, msg: String):
+        if self._state in [DONE, EMERGENCY_STOP]:
             return
         try:
             data = json.loads(msg.data)
-            if data.get('detected'):
+            if data.get("class", "").lower() != self._resolved_target:
+                return
+            self._last_spotted_data = data
+            self._last_detection_time = time.time()
+            if self._state in [SCANNING, MOVING_TO_SCAN, MEMORY_NAV]:
+                self.get_logger().info("Target spotted — stopping, centering")
+                self._stop_rotation()
+                self._start_centering(return_to=DEPTH_CHECK)
+            elif self._state == CENTERING:
+                bbox_cx = (data["bbox"][0] + data["bbox"][2]) / 2.0
                 self.get_logger().info(
-                    f"Color blob detected! direction={data.get('direction')} "
-                    f"ratio={data.get('ratio', 0):.3f}"
+                    f"Centering detection | bbox_cx: {bbox_cx:.0f} | confirms: {self._center_confirm_count}/{CONFIRM_COUNT}"
                 )
-                self.stop_rotation()
-                self.scanning_active = False
-                self.approach_direction = data.get('direction', 'center')
-                self.approach_steps = 0
-                self.approach_origin = (self.robot_x, self.robot_y)
-                self.set_state('APPROACHING')
-                self.do_approach_step()
+            elif self._state in [DRIVING_1M, APPROACHING]:
+                bbox_cx = (data["bbox"][0] + data["bbox"][2]) / 2.0
+                drift = abs(bbox_cx - FRAME_CENTER_X)
+                self.get_logger().info(f"Detection during drive | bbox_cx: {bbox_cx:.0f} | drift: {drift:.0f}px")
         except Exception as e:
-            self.get_logger().warn(f'Color detection parse error: {e}')
+            self.get_logger().error(f"object_spotted_callback failed: {e}")
 
-    def nav_status_callback(self, msg):
-        status = msg.data
-        self.get_logger().info(f"Nav status: {status}")
+    def nav_status_callback(self, msg: String):
+        if self._state == MOVING_TO_SCAN:
+            self._nav_status = msg.data
+        elif self._state == MEMORY_NAV:
+            self._memory_nav_status = msg.data
 
-        if status == 'GOAL_REACHED':
-            if self.state == 'MOVING_TO_SCAN':
-                self.get_logger().info("At scan point — starting 360° scan")
-                self.set_state('SCANNING')
-                self.rotation_angle = 0.0
-                self.is_paused = True
-                self.last_rotation_time = time.time()
-                self.scanning_active = True
+    def map_callback(self, msg: OccupancyGrid):
+        if self._map is None:
+            self._map = msg
+            self.get_logger().info(f"Map received: {msg.info.width}x{msg.info.height} @ {msg.info.resolution}m/cell")
 
-            elif self.state == 'APPROACHING':
-                trigger_msg = String()
-                trigger_msg.data = json.dumps({
-                    'task': self.current_task,
-                    'mode': 'llava_verify',
-                    'color_range': self.color_range
-                })
-                self.scan_trigger_pub.publish(trigger_msg)
+    def amcl_pose_callback(self, msg: PoseWithCovarianceStamped):
+        self._robot_x = msg.pose.pose.position.x
+        self._robot_y = msg.pose.pose.position.y
 
-            elif self.state == 'VERIFYING':
-                self.get_logger().info("Arrived at target — DONE!")
-                self.set_state('DONE')
-                self.publish_status('DONE')
-                self.current_task = None
-                self.scan_points = []
-                self.visited_scan_points = []
-                self.set_state('IDLE')
+    def odom_callback(self, msg: Odometry):
+        q = msg.pose.pose.orientation
+        siny = 2.0 * (q.w * q.z + q.x * q.y)
+        cosy = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
+        self._robot_yaw = math.atan2(siny, cosy)
 
-        elif status in ['GOAL_REJECTED', 'NAV2_UNAVAILABLE']:
-            if self.state == 'MOVING_TO_SCAN':
-                self.go_to_next_scan_point()
-            elif self.state == 'APPROACHING':
-                self.return_to_scan_point()
-
-    def rotation_timer(self):
-        if self.state != 'SCANNING' or not self.scanning_active:
+    def _state_machine_tick(self):
+        if self._state == IDLE:
             return
+        if self._state == SCANNING:
+            self._tick_scanning()
+        elif self._state == MOVING_TO_SCAN:
+            self._tick_moving_to_scan()
+        elif self._state == MEMORY_NAV:
+            self._tick_memory_nav()
+        elif self._state == CENTERING:
+            self._tick_centering()
+        elif self._state == DEPTH_CHECK:
+            self._tick_depth_check()
+        elif self._state == DRIVING_1M:
+            self._tick_driving_1m()
+        elif self._state == APPROACHING:
+            self._tick_approaching()
 
-        now = time.time()
-
-        if self.is_paused:
-            if now - self.last_rotation_time >= self.rotation_pause:
-                if self.rotation_angle >= 360.0:
-                    self.get_logger().info("360° scan complete — no object found here")
-                    self.scanning_active = False
-                    self.go_to_next_scan_point()
-                    return
-                self.is_paused = False
-                self._do_rotate()
+    def _load_memory(self) -> dict:
+        if os.path.exists(MEMORY_FILE):
+            try:
+                with open(MEMORY_FILE, "r") as f:
+                    data = json.load(f)
+                self.get_logger().info(f"Memory loaded | objects: {list(data.keys())}")
+                return data
+            except Exception as e:
+                self.get_logger().warn(f"Failed to load memory: {e}")
         else:
-            twist = Twist()
-            twist.angular.z = 0.3
-            self.cmd_vel_pub.publish(twist)
+            self.get_logger().info(f"No memory file found at {MEMORY_FILE}")
+        return {}
 
-    def _do_rotate(self):
-        rotate_duration = math.radians(self.rotation_step) / 0.3
-        end_time = time.time() + rotate_duration
+    def _start_memory_nav(self):
+        if self._memory_pose_idx >= len(self._memory_poses):
+            self.get_logger().info(f"All {len(self._memory_poses)} memory poses exhausted — starting exploration")
+            self._start_scanning()
+            return
+        pose = self._memory_poses[self._memory_pose_idx]
+        x = pose["x"]
+        y = pose["y"]
+        conf = pose["confidence"]
+        self.get_logger().info(
+            f"MEMORY_NAV: pose {self._memory_pose_idx + 1}/{len(self._memory_poses)} | ({x:.2f}, {y:.2f}) | conf: {conf:.2f}"
+        )
+        self._state = MEMORY_NAV
+        self._memory_nav_status = None
+        self._publish_status(f"MEMORY_NAV {self._memory_pose_idx + 1}/{len(self._memory_poses)} ({x:.2f}, {y:.2f}) conf:{conf:.2f}")
+        msg = String()
+        msg.data = json.dumps({"x": x, "y": y, "final": False})
+        self.goal_pub.publish(msg)
 
-        while time.time() < end_time:
-            twist = Twist()
-            twist.angular.z = 0.3
-            self.cmd_vel_pub.publish(twist)
-            time.sleep(0.05)
+    def _tick_memory_nav(self):
+        if self._memory_nav_status == "GOAL_REACHED":
+            self._memory_nav_status = None
+            self.get_logger().info(f"Memory pose {self._memory_pose_idx + 1} reached — scanning")
+            self._start_scanning()
+        elif self._memory_nav_status == "GOAL_REJECTED":
+            self._memory_nav_status = None
+            self.get_logger().warn(f"Memory pose {self._memory_pose_idx + 1} rejected — trying next")
+            self._memory_pose_idx += 1
+            self._start_memory_nav()
 
-        self.stop_rotation()
-        self.rotation_angle += self.rotation_step
-        self.is_paused = True
-        self.last_rotation_time = time.time()
+    def _validate_with_clip_llava(self) -> bool:
+        if self._latest_frame_bgr is None or self._resolved_target is None:
+            self.get_logger().warn("Validation: no frame or target — defaulting to confirmed")
+            return True
+        votes = 1
+        description = self._user_description if self._user_description else self._resolved_target
+        try:
+            frame_small = cv2.resize(self._latest_frame_bgr, (320, 240))
+            _, buffer = cv2.imencode(".jpg", frame_small, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            img_b64 = base64.b64encode(buffer.tobytes()).decode()
+            try:
+                r = requests.post(
+                    f"{self._server_url}/clip_score",
+                    json={"image": img_b64, "text": f"a photo of a {description}"},
+                    timeout=5,
+                )
+                clip_score = r.json().get("score", 0.0)
+                clip_ok = clip_score >= CLIP_THRESHOLD
+                if clip_ok:
+                    votes += 1
+                self.get_logger().info(
+                    f'CLIP: score={clip_score:.4f} | threshold={CLIP_THRESHOLD} | description="{description}" | ok={clip_ok}'
+                )
+            except Exception as e:
+                self.get_logger().warn(f"CLIP failed: {e}")
+            try:
+                r = requests.post(
+                    f"{self._server_url}/llava_reason",
+                    json={"image": img_b64, "target": description},
+                    timeout=15,
+                )
+                result = r.json()
+                llava_ok = result.get("present", False)
+                if llava_ok:
+                    votes += 1
+                self.get_logger().info(
+                    f'LLaVA: present={llava_ok} | description="{description}" | confidence={result.get("confidence")} | reason: {result.get("reasoning", "")}'
+                )
+            except Exception as e:
+                self.get_logger().warn(f"LLaVA failed: {e}")
+            confirmed = votes >= VOTES_REQUIRED
+            self.get_logger().info(f"Validation: {votes}/3 votes | confirmed: {confirmed}")
+            return confirmed
+        except Exception as e:
+            self.get_logger().error(f"_validate_with_clip_llava failed: {e}")
+            return True
 
-        trigger_msg = String()
-        trigger_msg.data = json.dumps({
-            'task': self.current_task,
-            'angle': self.rotation_angle,
-            'color_range': self.color_range,
-            'mode': 'scan'
-        })
-        self.scan_trigger_pub.publish(trigger_msg)
-        self.get_logger().info(f"Scanning at {self.rotation_angle:.0f}°")
+    def _start_scanning(self):
+        self._state = SCANNING
+        self._rotation_total = 0.0
+        self._rotation_active = True
+        self._rotation_pausing = False
+        self._rotating = False
+        self.get_logger().info(f"SCANNING at point {self._current_scan_idx}/{len(self._scan_points)} — {SCAN_TOTAL_DEG}° rotation")
+        self._publish_status("SCANNING")
 
-    def stop_rotation(self):
+    def _tick_scanning(self):
+        if not self._rotation_active:
+            return
+        now = time.time()
+        if self._rotating:
+            if now >= self._rotate_end_time:
+                self._rotating = False
+                self.cmd_vel_pub.publish(Twist())
+                self._rotation_total += SCAN_STEP_DEG
+                self._rotation_pausing = True
+                self._rotation_pause_end = now + SCAN_PAUSE_S
+            return
+        if self._rotation_pausing:
+            if now >= self._rotation_pause_end:
+                self._rotation_pausing = False
+                if self._rotation_total >= SCAN_TOTAL_DEG:
+                    self.get_logger().info("Scan complete at this point — moving to next")
+                    self._rotation_active = False
+                    self._go_to_next_scan_point()
+            return
+        step_rad = math.radians(SCAN_STEP_DEG)
+        duration = step_rad / SCAN_SPEED
         twist = Twist()
+        twist.angular.z = SCAN_SPEED
+        self.cmd_vel_pub.publish(twist)
+        self._rotate_end_time = now + duration
+        self._rotating = True
+
+    def _stop_rotation(self):
+        self._rotation_active = False
+        self._rotation_pausing = False
+        self._rotating = False
+        self.cmd_vel_pub.publish(Twist())
+
+    def _go_to_next_scan_point(self):
+        if not self._scan_points:
+            self._generate_scan_points()
+            if not self._scan_points:
+                self.get_logger().warn("No scan points generated — IDLE")
+                self._publish_status("OBJECT_NOT_FOUND")
+                self._state = IDLE
+                return
+        if self._current_scan_idx >= len(self._scan_points):
+            self.get_logger().info(f"All {len(self._scan_points)} scan points visited — object not found")
+            self._publish_status("OBJECT_NOT_FOUND")
+            self._state = IDLE
+            return
+        x, y = self._scan_points[self._current_scan_idx]
+        self._current_scan_idx += 1
+        self._state = MOVING_TO_SCAN
+        self._nav_status = None
+        self.get_logger().info(f"Moving to scan point {self._current_scan_idx}/{len(self._scan_points)} → ({x:.2f}, {y:.2f})")
+        self._publish_status(f"MOVING_TO_SCAN {self._current_scan_idx}/{len(self._scan_points)} ({x:.2f}, {y:.2f})")
+        msg = String()
+        msg.data = json.dumps({"x": x, "y": y, "final": False})
+        self.goal_pub.publish(msg)
+
+    def _tick_moving_to_scan(self):
+        if self._nav_status == "GOAL_REACHED":
+            self._nav_status = None
+            self.get_logger().info("Scan point reached — starting scan")
+            self._start_scanning()
+        elif self._nav_status == "GOAL_REJECTED":
+            self._nav_status = None
+            self.get_logger().warn(f"Scan point {self._current_scan_idx} rejected — skipping to next")
+            self._go_to_next_scan_point()
+
+    def _start_centering(self, return_to: str):
+        self._state = CENTERING
+        self._center_confirm_count = 0
+        self._centering_return_state = return_to
+        self._centering_start_time = time.time()
+        self.get_logger().info(f"CENTERING — will return to {return_to}")
+        self._publish_status("CENTERING")
+
+    def _tick_centering(self):
+        now = time.time()
+        if now - self._centering_start_time > 15.0:
+            self.get_logger().warn("Centering timeout — back to scanning")
+            self._stop_robot()
+            self._start_scanning()
+            return
+        if self._last_spotted_data is not None and now - self._last_detection_time > 4.0:
+            self.get_logger().warn("Target lost during centering — back to scanning")
+            self._stop_robot()
+            self._last_spotted_data = None
+            self._start_scanning()
+            return
+        if self._last_spotted_data is None:
+            return
+        bbox = self._last_spotted_data.get("bbox", None)
+        if bbox is None:
+            return
+        x1, y1, x2, y2 = bbox
+        bbox_cx = (x1 + x2) / 2.0
+        error = bbox_cx - FRAME_CENTER_X
+        if abs(error) <= CENTER_THRESHOLD:
+            self._stop_robot()
+            self._center_confirm_count += 1
+            self.get_logger().info(f"Centered! {self._center_confirm_count}/{CONFIRM_COUNT} | bbox_cx: {bbox_cx:.0f} | error: {error:.0f}px")
+            if self._center_confirm_count >= CONFIRM_COUNT:
+                self.get_logger().info(
+                    f'\n{"=" * 50}\nTARGET CENTERED | class: {self._last_spotted_data.get("class")} | bbox_cx: {bbox_cx:.0f}px | error: {error:.0f}px\n{"=" * 50}'
+                )
+                if self._centering_return_state == DEPTH_CHECK:
+                    self._start_depth_check()
+                elif self._centering_return_state == APPROACHING:
+                    self._state = APPROACHING
+                    self._last_depth_check_time = 0.0
+        else:
+            self._center_confirm_count = 0
+            omega = -KP * error
+            omega = max(min(omega, MAX_ROT_SPEED), -MAX_ROT_SPEED)
+            if 0 < abs(omega) < MIN_ROT_SPEED:
+                omega = math.copysign(MIN_ROT_SPEED, omega)
+            twist = Twist()
+            twist.angular.z = omega
+            self.cmd_vel_pub.publish(twist)
+            self.get_logger().info(f"Centering | bbox_cx: {bbox_cx:.0f} | error: {error:.0f}px | omega: {math.degrees(omega):.1f}°/s")
+
+    def _start_depth_check(self):
+        self._state = DEPTH_CHECK
+        self.get_logger().info("DEPTH_CHECK — calling depth service")
+        self._publish_status("DEPTH_CHECK")
+        if self._last_spotted_data is not None:
+            bbox_msg = String()
+            bbox_msg.data = json.dumps({"bbox": self._last_spotted_data["bbox"], "class": self._last_spotted_data.get("class", "unknown")})
+            self.depth_bbox_pub.publish(bbox_msg)
+        if not self._depth_client.wait_for_service(timeout_sec=2.0):
+            self.get_logger().warn("Depth service not available — back to scanning")
+            self._start_scanning()
+            return
+        self._depth_future = self._depth_client.call_async(Trigger.Request())
+        self._depth_check_start = time.time()
+
+    def _tick_depth_check(self):
+        if time.time() - self._depth_check_start > 5.0:
+            self.get_logger().warn("Depth check timeout — back to scanning")
+            self._depth_future = None
+            self._start_scanning()
+            return
+        if self._depth_future is None or not self._depth_future.done():
+            return
+        try:
+            response = self._depth_future.result()
+            self._depth_future = None
+            if not response.success:
+                self.get_logger().warn(f"Depth failed: {response.message} — back to scanning")
+                self._start_scanning()
+                return
+            distance_m = float(response.message)
+            self._latest_distance = distance_m
+            self.get_logger().info(f"Depth: {distance_m:.3f}m | reliable: {STEREO_RELIABLE_M}m | stop: {STOP_DISTANCE_M}m")
+            if distance_m <= STOP_DISTANCE_M:
+                self._declare_done(distance_m)
+            elif distance_m <= STEREO_RELIABLE_M:
+                self.get_logger().info(f"Near ({distance_m:.2f}m) — running CLIP+LLaVA validation")
+                if self._validate_with_clip_llava():
+                    self.get_logger().info("Validation confirmed — starting approach")
+                    self._state = APPROACHING
+                    self._last_depth_check_time = 0.0
+                else:
+                    self.get_logger().warn(f"Validation FAILED at {distance_m:.2f}m — back to scanning")
+                    self._last_spotted_data = None
+                    self._last_detection_time = 0.0
+                    self._start_scanning()
+            elif distance_m <= 2.5:
+                self.get_logger().info(f"Safe zone ({distance_m:.2f}m) — running CLIP+LLaVA validation")
+                if self._validate_with_clip_llava():
+                    self.get_logger().info("Validation confirmed — driving 1m")
+                    self._start_driving_1m()
+                else:
+                    self.get_logger().warn(f"Validation FAILED at {distance_m:.2f}m — back to scanning")
+                    self._last_spotted_data = None
+                    self._last_detection_time = 0.0
+                    self._start_scanning()
+            else:
+                self.get_logger().info(f"Far ({distance_m:.2f}m) — driving 1m")
+                self._start_driving_1m()
+        except Exception as e:
+            self.get_logger().error(f"Depth check failed: {e}")
+            self._depth_future = None
+            self._start_scanning()
+
+    def _start_driving_1m(self):
+        self._state = DRIVING_1M
+        self._drive_start_time = time.time()
+        self.get_logger().info(f"DRIVING_1M — {DRIVE_1M_DIST}m at {DRIVE_SPEED}m/s ({self._drive_duration:.1f}s)")
+        self._publish_status("DRIVING_1M")
+
+    def _tick_driving_1m(self):
+        now = time.time()
+        elapsed = now - self._drive_start_time
+        if self._last_spotted_data is not None:
+            bbox = self._last_spotted_data.get("bbox", None)
+            if bbox is not None:
+                bbox_cx = (bbox[0] + bbox[2]) / 2.0
+                drift = abs(bbox_cx - FRAME_CENTER_X)
+                if drift > DRIFT_THRESHOLD:
+                    self.get_logger().warn(f"Drift during 1m drive: {drift:.0f}px — re-centering")
+                    self._stop_robot()
+                    self._last_spotted_data = None
+                    self._last_detection_time = 0.0
+                    self._start_centering(return_to=DEPTH_CHECK)
+                    return
+        if elapsed >= self._drive_duration:
+            self._stop_robot()
+            self.get_logger().info("1m drive complete — re-centering")
+            self._last_spotted_data = None
+            self._last_detection_time = 0.0
+            self._start_centering(return_to=DEPTH_CHECK)
+            return
+        twist = Twist()
+        twist.linear.x = DRIVE_SPEED
+        twist.angular.z = 0.0
         self.cmd_vel_pub.publish(twist)
 
-    def do_approach_step(self):
-        if self.approach_steps >= self.max_approach_steps:
-            self.get_logger().warn("Max approach steps — false positive, returning")
-            self.return_to_scan_point()
-            return
+    def _tick_approaching(self):
+        now = time.time()
+        if self._last_spotted_data is not None:
+            bbox = self._last_spotted_data.get("bbox", None)
+            if bbox is not None:
+                bbox_cx = (bbox[0] + bbox[2]) / 2.0
+                drift = abs(bbox_cx - FRAME_CENTER_X)
+                if drift > DRIFT_THRESHOLD:
+                    self.get_logger().warn(f"Drift during approach: {drift:.0f}px — re-centering")
+                    self._stop_robot()
+                    self._start_centering(return_to=APPROACHING)
+                    return
+        if now - self._last_depth_check_time >= DEPTH_CHECK_INTERVAL:
+            self._last_depth_check_time = now
+            if self._latest_distance is not None:
+                self.get_logger().info(f"Approach depth: {self._latest_distance:.3f}m")
+                if self._latest_distance <= STOP_DISTANCE_M:
+                    self._stop_robot()
+                    self._declare_done(self._latest_distance)
+                    return
+            if self._last_spotted_data is not None:
+                bbox_msg = String()
+                bbox_msg.data = json.dumps({"bbox": self._last_spotted_data["bbox"], "class": self._last_spotted_data.get("class", "unknown")})
+                self.depth_bbox_pub.publish(bbox_msg)
+                if self._depth_client.wait_for_service(timeout_sec=0.2):
+                    future = self._depth_client.call_async(Trigger.Request())
+                    future.add_done_callback(self._approach_depth_callback)
+        twist = Twist()
+        twist.linear.x = DRIVE_SPEED
+        twist.angular.z = 0.0
+        self.cmd_vel_pub.publish(twist)
 
-        step_distance = 0.5
-        offset = 0.0
-        if self.approach_direction == 'left':
-            offset = math.pi / 4
-        elif self.approach_direction == 'right':
-            offset = -math.pi / 4
+    def _approach_depth_callback(self, future):
+        try:
+            response = future.result()
+            if response.success:
+                self._latest_distance = float(response.message)
+                self.get_logger().info(f"Approach depth update: {self._latest_distance:.3f}m")
+        except Exception as e:
+            self.get_logger().warn(f"Approach depth callback: {e}")
 
-        goal_x = self.robot_x + step_distance * math.cos(offset)
-        goal_y = self.robot_y + step_distance * math.sin(offset)
-        self.approach_steps += 1
-
+    def _declare_done(self, distance_m: float):
+        self._stop_robot()
+        self._state = DONE
         self.get_logger().info(
-            f"Approach step {self.approach_steps}/{self.max_approach_steps} → ({goal_x:.2f}, {goal_y:.2f})"
+            f'\n{"=" * 60}\nGOAL COMPLETED\nTarget   : {self._resolved_target}\nDistance : {distance_m:.3f}m\n{"=" * 60}'
         )
-        self.publish_goal(goal_x, goal_y)
+        self._publish_status(f"GOAL COMPLETED — {self._resolved_target} at {distance_m:.3f}m")
+        self.create_timer(2.0, self._auto_reset)
 
-    def return_to_scan_point(self):
-        if self.approach_origin:
-            x, y = self.approach_origin
-            self.get_logger().info(f"Returning to scan origin ({x:.2f}, {y:.2f})")
-            self.publish_goal(x, y)
-            self.set_state('MOVING_TO_SCAN')
+    def _auto_reset(self):
+        if self._state == DONE:
+            self.get_logger().info("Auto reset — ready for next command")
+            self._full_reset()
 
-    def try_generate_scan_points(self):
-        if not self.scan_points:
-            self.get_logger().info("Waiting for map to generate scan points...")
-
-    def go_to_next_scan_point(self):
-        unvisited = [p for p in self.scan_points if p not in self.visited_scan_points]
-
-        if not unvisited:
-            if not self.scan_points:
-                import random
-                x = random.uniform(-2.0, 2.0)
-                y = random.uniform(-2.0, 2.0)
-                self.get_logger().warn(f"No scan points yet — using random waypoint ({x:.2f}, {y:.2f})")
-                self.publish_goal(x, y)
-                return
-
-            self.get_logger().warn("All scan points visited — object not found")
-            self.publish_status('NOT_FOUND')
-            self.current_task = None
-            self.set_state('IDLE')
+    def _generate_scan_points(self):
+        if self._map is None:
+            self.get_logger().warn("No map yet — cannot generate scan points")
             return
-
-        next_point = get_closest_scan_point(unvisited, self.robot_x, self.robot_y)
-        self.visited_scan_points.append(next_point)
-        self.current_scan_point = next_point
+        info = self._map.info
+        data = np.array(self._map.data, dtype=np.int8).reshape(info.height, info.width)
+        res = info.resolution
+        ox = info.origin.position.x
+        oy = info.origin.position.y
+        clearance_cells = max(int(math.ceil(WALL_CLEARANCE_M / res)), 1)
+        spacing_cells = max(int(round(SCAN_SPACING_M / res)), 1)
         self.get_logger().info(
-            f"Moving to scan point {next_point} "
-            f"({len(self.visited_scan_points)}/{len(self.scan_points)})"
+            f"Generating scan points | map: {info.width}x{info.height} @ {res:.4f}m/cell | clearance: {clearance_cells} cells ({clearance_cells * res:.2f}m) | spacing: {spacing_cells} cells ({spacing_cells * res:.2f}m)"
         )
-        self.publish_goal(next_point[0], next_point[1])
+        free = (data == 0).astype(np.uint8)
 
-    def check_map_for_task(self, object_map, task):
-        task_lower = task.lower()
-        for obj in object_map:
-            if obj['class'].lower() in task_lower and obj['status'] == 'present':
-                return obj
-        return None
+        from scipy.ndimage import minimum_filter, label
 
-    def exploration_fallback_timer(self):
-        if self.state == 'SCANNING' and self.rotation_angle >= 360.0:
-            self.get_logger().warn('Fallback timer triggered — moving to next scan point')
-            self.scanning_active = False
-            self.go_to_next_scan_point()
+        safe = minimum_filter(free, size=2 * clearance_cells + 1) == 1
+        rows = range(clearance_cells, info.height - clearance_cells, spacing_cells)
+        points_by_row = []
+        grid_point_set = set()
 
-    def publish_goal(self, x, y):
-        msg = String()
-        msg.data = json.dumps({'x': x, 'y': y})
-        self.goal_pub.publish(msg)
-        self.get_logger().info(f"Goal → ({x:.2f}, {y:.2f})")
+        for row in rows:
+            row_pts = []
+            for col in range(clearance_cells, info.width - clearance_cells, spacing_cells):
+                if not safe[row, col]:
+                    continue
+                wx = ox + col * res
+                wy = oy + row * res
+                row_pts.append((wx, wy))
+                grid_point_set.add((row, col))
+            points_by_row.append(row_pts)
 
-    def publish_status(self, status):
+        scan_points = []
+        for i, row_pts in enumerate(points_by_row):
+            if not row_pts:
+                continue
+            scan_points.extend(row_pts if i % 2 == 0 else reversed(row_pts))
+
+        self.get_logger().info(f"Phase 1 (boustrophedon): {len(scan_points)} points")
+
+        labeled, num_features = label(safe)
+        self.get_logger().info(f"Phase 2: found {num_features} connected free regions")
+        extra_points = []
+
+        for region_id in range(1, num_features + 1):
+            region_mask = labeled == region_id
+            region_cells = np.argwhere(region_mask)
+            if len(region_cells) < 256:
+                self.get_logger().info(f"Phase 2: skipping region {region_id} ({len(region_cells)} cells) — too small")
+                continue
+            covered = any(region_mask[row, col] for row, col in grid_point_set)
+            if covered:
+                continue
+            centroid_row = int(np.mean(region_cells[:, 0]))
+            centroid_col = int(np.mean(region_cells[:, 1]))
+            if safe[centroid_row, centroid_col]:
+                best_row, best_col = centroid_row, centroid_col
+            else:
+                dists = np.sqrt((region_cells[:, 0] - centroid_row) ** 2 + (region_cells[:, 1] - centroid_col) ** 2)
+                idx = np.argmin(dists)
+                best_row = region_cells[idx, 0]
+                best_col = region_cells[idx, 1]
+            wx = ox + best_col * res
+            wy = oy + best_row * res
+            extra_points.append((wx, wy))
+            self.get_logger().info(
+                f"Phase 2: adding room centroid ({wx:.2f}, {wy:.2f}) for region {region_id} ({len(region_cells)} cells)"
+            )
+
+        self._scan_points = scan_points + extra_points
+        self.get_logger().info(
+            f"Total scan points: {len(self._scan_points)} ({len(scan_points)} grid + {len(extra_points)} room centroids) | robot at ({self._robot_x:.2f}, {self._robot_y:.2f})"
+        )
+
+    def _stop_robot(self):
+        self.cmd_vel_pub.publish(Twist())
+
+    def _full_reset(self):
+        self._stop_robot()
+        self._stop_rotation()
+        self._state = IDLE
+        self._last_spotted_data = None
+        self._center_confirm_count = 0
+        self._last_detection_time = 0.0
+        self._depth_future = None
+        self._latest_distance = None
+        self._rotation_total = 0.0
+        self._nav_status = None
+        self._scan_points = []
+        self._current_scan_idx = 0
+        self._memory_poses = []
+        self._memory_pose_idx = 0
+        self._memory_nav_status = None
+        self._user_description = None
+
+    def _publish_status(self, status: str):
         msg = String()
         msg.data = status
         self.status_pub.publish(msg)
-
-    def set_state(self, new_state):
-        self.get_logger().info(f"State: {self.state} → {new_state}")
-        self.state = new_state
-        self.publish_status(new_state)
 
 
 def main(args=None):
@@ -312,5 +730,5 @@ def main(args=None):
     rclpy.shutdown()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
